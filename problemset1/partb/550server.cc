@@ -43,6 +43,7 @@ using namespace std;
 char* stripwhite(char *string);
 
 typedef struct {
+	int client_fd;
 	char filepath[MAXBUF];	// filepath requested
 	int pipefd[2];	// pipe with main event loop
 	void *mmap_addr;	// memory address of file requested
@@ -56,23 +57,36 @@ void free_client_connection(client_connection *cc) {
  	if (cc) delete cc;
 }
 
-void* read_file_return_mmap_address(char *filepath, int* file_length, void** mmap_addr) {		
+void* read_file_return_mmap_address(client_connection *cc) {		
 
 	struct stat sb;
 
-	int file_fd = open(filepath, O_RDONLY);
+	int file_fd = open(cc->filepath, O_RDONLY);
 	if (file_fd != -1 && fstat(file_fd, &sb) != -1) {
 		// open file successfully
-		*file_length = sb.st_size;
+		cc->file_length = sb.st_size;
 
 		// mmap to memory
-		*mmap_addr = mmap(NULL, *file_length, PROT_READ, MAP_PRIVATE, file_fd, 0);
+		cc->mmap_addr = mmap(NULL, cc->file_length, PROT_READ, MAP_PRIVATE, file_fd, 0);
 		// can still be MAP_FAILED
 	} else {
-		*mmap_addr = MAP_FAILED;
+		cc->mmap_addr = MAP_FAILED;
 	}
+	// write a single byte to pipe
+	// notifies event loop
+	write(cc->pipefd[PIPE_WRITE], "c", 1);
 	return NULL;
 }
+
+int remove_fd_from_fdsets(int i, int max_fd, fd_set *read_set, fd_set *write_set) {
+	if (i == max_fd) {
+		while (!FD_ISSET(max_fd, read_set) 
+			&& !FD_ISSET(max_fd, write_set))
+			max_fd--;
+	}
+	return max_fd;
+}
+			
 
 void close_all_fds(int max_fd, fd_set &master_read_set, fd_set &master_write_set) {
 	for (int i = 0; i <= max_fd; ++i) {
@@ -130,11 +144,11 @@ int main(int argc, char **argv) {
 	fd_set master_read_set, working_read_set;
 	fd_set master_write_set, working_write_set;
 	int rc;	// select return val
-	int max_fd = listening_fd;	// max sock descriptor
 	FD_ZERO(&master_read_set);
 	FD_ZERO(&master_write_set);
 	FD_SET(listening_fd, &master_read_set);
-
+	int max_fd = listening_fd;	// max sock descriptor
+	
 	// timeout on select
 	struct timeval timeout;
 	timeout.tv_sec = 3 * 60;
@@ -150,9 +164,10 @@ int main(int argc, char **argv) {
 
 	// map from client_fd to client_connection struct
 	map<int, client_connection*> client_connection_states;
+	// map from pipe to client
+	map<int, client_connection*> pipe_map_to_client;
 
 	/* enter event handling loop */
-	bool end_server = false;
 	while (1) {
 		// build working_set for select()
 		memcpy(&working_read_set, &master_read_set, sizeof(master_read_set));
@@ -173,6 +188,7 @@ int main(int argc, char **argv) {
 		int num_fds_ready = rc;
 		for (int i = 0; i <= max_fd && num_fds_ready > 0; ++i) {
 
+			/* in read_set */
 			if (FD_ISSET(i, &working_read_set)) {
 				num_fds_ready--;	// one less fd to scan
 
@@ -193,15 +209,13 @@ int main(int argc, char **argv) {
 							}
 							// all pending connections accepted; errno = EWOULDBLOCK or EAGAIN
 						} else {
-							// create client_connection_states entry
-							client_connection_states[client_fd] = new client_connection();
-					        // add new client_fd to master_read_set
-					        // update max_fd
+							// add new client_fd to master_read_set
 					        FD_SET(client_fd, &master_read_set);
-					        if (client_fd > max_fd) max_fd = client_fd;
+					        max_fd = max(max_fd, client_fd);
 				    	}
 				    } while (client_fd != -1);
-			    } else {
+
+			    } else if (pipe_map_to_client.find(i) == pipe_map_to_client.end()) {
 			    	// a client fd is ready for reading
 		 			char buffer[MAXBUF];
 			   		memset(buffer, 0, MAXBUF);
@@ -213,78 +227,96 @@ int main(int argc, char **argv) {
 						if (errno != EWOULDBLOCK && errno != EAGAIN) {
 							// connection error
 							perror("read from socket");
+							close(i);
 						}
 					} else if (read_nbytes == 0) {
 						// client orderly shutdown
 						perror("client shutdown");
+						close(i);
 					} else {
 						/* read filepath */
 						buffer[read_nbytes] = '\0';
 						char *filepath = stripwhite(buffer);
+						// create client_connection_states entry
+						client_connection *cc = new client_connection();
+						client_connection_states[i] = cc;
 
+						// store client fd
+						cc->client_fd = i;
+					    
 						/* fetch file to memory */
-						strcpy(client_connection_states[i]->filepath, filepath);
+						strcpy(cc->filepath, filepath);
 						
-						read_file_return_mmap_address(client_connection_states[i]->filepath, 
-													&(client_connection_states[i]->file_length), 
-													&(client_connection_states[i]->mmap_addr));
-						client_connection_states[i]->write_buf_position 
-							= (char *)client_connection_states[i]->mmap_addr;
-						client_connection_states[i]->remaining_bytes_to_write
-							= client_connection_states[i]->file_length;
+						/* create pipe for worker thread */
+						if (pipe(cc->pipefd) == -1)
+							handle_error("pipe");
 
+						// add PIPE_READ end to read_set
+						FD_SET(cc->pipefd[PIPE_READ], &master_read_set);
+						max_fd = max(max_fd, cc->pipefd[PIPE_READ]);
+						pipe_map_to_client[cc->pipefd[PIPE_READ]] = cc;
 
-						if (client_connection_states[i]->mmap_addr == MAP_FAILED) {
-							perror("mmap");
-							// delete client connection state since it will be shut down
-							free_client_connection(client_connection_states[i]);
-							client_connection_states.erase(i);
-						} else {
-							// wait for client to be writable in next select call
-							// set client_fd in write_set
-							FD_SET(i, &master_write_set);
-						}
+						read_file_return_mmap_address(cc);
 					}
-
 					// finished reading from client_fd
 					FD_CLR(i, &master_read_set);
-					if (!FD_ISSET(i, &master_write_set)) {
-						// if client_fd closed, close connection and update max_fd
-						close(i);
-						if (i == max_fd) {
-							while (!FD_ISSET(max_fd, &master_read_set) && !FD_ISSET(max_fd, &master_write_set))
-								max_fd--;
-						}
+					max_fd = remove_fd_from_fdsets(i, max_fd, &master_read_set, &master_write_set);
+				
+				} else {
+					/* pipe_read end ready to read */
+
+					// worker thread mmap return
+					client_connection *cc = pipe_map_to_client[i];
+
+					if (cc->mmap_addr == MAP_FAILED) {
+						perror("mmap");
+						// close connection
+						// delete client connection state since it will be shut down
+						close(cc->client_fd);
+						free_client_connection(cc);
+						client_connection_states.erase(i);
+					} else {
+						// wait for client to be writable in next select call
+						// set client_fd in write_set
+						cc->write_buf_position = (char *)cc->mmap_addr;
+						cc->remaining_bytes_to_write = cc->file_length;
+						FD_SET(cc->client_fd, &master_write_set);
+						max_fd = max(max_fd, i);
 					}
+					// remove pipefd from read_set
+					FD_CLR(i, &master_read_set);
+					max_fd = remove_fd_from_fdsets(i, max_fd, &master_read_set, &master_write_set);
+					pipe_map_to_client.erase(i);
 				}
+
+			/* in write_set */
 			} else if (FD_ISSET(i, &working_write_set)) {
+				/* client_fd ready to write */
+
 				num_fds_ready--;	// one less fd to scan
+				client_connection *cc = client_connection_states[i];
 
 				// send file content to client
 				// need to handle large file writes
-				int write_nbytes = write(i, client_connection_states[i]->write_buf_position,
-										 client_connection_states[i]->remaining_bytes_to_write);
+				int write_nbytes = write(i, cc->write_buf_position,
+										 cc->remaining_bytes_to_write);
 
 				if (write_nbytes < 0)
 					perror("write to socket");
 
 				// update client write buffer position for next write
-				client_connection_states[i]->write_buf_position += write_nbytes;
-				client_connection_states[i]->remaining_bytes_to_write -= write_nbytes;
+				cc->write_buf_position += write_nbytes;
+				cc->remaining_bytes_to_write -= write_nbytes;
+
 				// if finished writing the entire file
-				if (client_connection_states[i]->remaining_bytes_to_write == 0) {
-					// delete client connection state since it will be shut down
-					free_client_connection(client_connection_states[i]);
-					client_connection_states.erase(i);
+				if (cc->remaining_bytes_to_write == 0) {
 					// close client connection
 					close(i);
+					// delete client connection state since it will be shut down
+					free_client_connection(cc);
+					client_connection_states.erase(i);
 					FD_CLR(i, &master_write_set);
-
-					// update max_fd
-					if (i == max_fd) {
-						while (!FD_ISSET(max_fd, &master_read_set) && !FD_ISSET(max_fd, &master_write_set))
-							max_fd--;
-					}
+					max_fd = remove_fd_from_fdsets(i, max_fd, &master_read_set, &master_write_set);
 				}
 			}
 		}
