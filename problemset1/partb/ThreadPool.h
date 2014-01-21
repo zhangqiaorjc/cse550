@@ -43,7 +43,7 @@ public:
 
 	void destroy_pool();
 
-	// ~ThreadPool();
+	~ThreadPool();
 };
 
 #endif /* THREADPOOL_H */

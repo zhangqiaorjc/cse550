@@ -75,6 +75,10 @@ void ThreadPool::destroy_pool() {
 	delete[] threads;	// deallocate threads array
 }
 
+ThreadPool::~ThreadPool() {
+	delete[] threads;
+}
+
 void* worker_function(void *argument) {
 	ThreadPool *pool = (ThreadPool *) argument;
 
@@ -118,9 +122,7 @@ void* worker_function(void *argument) {
 	}
 }
 
-// ThreadPool::~ThreadPool() {
-// 	delete[] threads;
-// }
+
 
 
 // void say_hello(void *threadID) {
