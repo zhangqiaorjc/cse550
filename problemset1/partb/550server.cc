@@ -44,7 +44,7 @@ char* stripwhite(char *string);
 
 typedef struct {
 	int client_fd;
-	char filepath[MAXBUF];			// filepath requested
+	char *filepath;			// filepath requested
 	int pipefd[2];					// pipe with main event loop
 	void *mmap_addr;				// memory address of file requested
 	int file_length;
@@ -54,6 +54,7 @@ typedef struct {
 
 void free_client_connection(client_connection *cc) {
  	if (cc->mmap_addr) munmap(cc->mmap_addr, cc->file_length);
+ 	if (cc->filepath) delete cc->filepath;
  	if (cc) delete cc;
 }
 
@@ -246,6 +247,7 @@ int main(int argc, char **argv) {
 						cc->client_fd = i;
 					    
 						/* fetch file to memory */
+						cc->filepath = new char[strlen(filepath)];
 						strcpy(cc->filepath, filepath);
 						
 						/* create pipe for worker thread */

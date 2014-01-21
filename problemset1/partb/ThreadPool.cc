@@ -55,7 +55,6 @@ void ThreadPool::wait_all_tasks_complete() {
 		pthread_cond_wait(&all_tasks_completed, &task_queue_lock);
 	}
 	pthread_mutex_unlock(&task_queue_lock);
-	
 }
 
 void ThreadPool::destroy_pool() {
@@ -70,13 +69,17 @@ void ThreadPool::destroy_pool() {
 
 	pthread_mutex_unlock(&task_queue_lock);
 
+	// join threads
+	for (int i = 0; i < num_threads; ++i) {
+		pthread_join(threads[i], NULL);
+	}
+
 	pthread_mutex_destroy(&task_queue_lock);	// delete lock
 
-	delete[] threads;	// deallocate threads array
+	delete[] threads;							// deallocate threads array
 }
 
 ThreadPool::~ThreadPool() {
-	delete[] threads;
 }
 
 void* worker_function(void *argument) {
@@ -98,34 +101,27 @@ void* worker_function(void *argument) {
 			return NULL;
 		}
 
-		if (pool->task_queue.size() > 0) {
-			// remove a task from queue and start running the function
-			threadpool_task_t task = pool->task_queue.front();
+		// remove a task from queue and start running the function
+		threadpool_task_t task = pool->task_queue.front();
 
-			pool->task_queue.pop();
+		pool->task_queue.pop();
 
-			pthread_cond_signal(&pool->task_queue_empty);
-			pthread_mutex_unlock(&pool->task_queue_lock);
-			
-			// runs the task
-			(*(task.function))(task.argument);
+		pthread_cond_signal(&pool->task_queue_empty);
+		pthread_mutex_unlock(&pool->task_queue_lock);
 		
-			// decrement num_incomplete_tasks
-			pthread_mutex_lock(&pool->task_queue_lock);
-			pool->num_incomplete_tasks--;
-			pthread_cond_signal(&pool->all_tasks_completed);
-			pthread_mutex_unlock(&pool->task_queue_lock);
-		} else {
-			pthread_mutex_unlock(&pool->task_queue_lock);	
-		}
+		// runs the task
+		(*(task.function))(task.argument);
+	
+		// decrement num_incomplete_tasks
+		pthread_mutex_lock(&pool->task_queue_lock);
+		pool->num_incomplete_tasks--;
+		pthread_cond_signal(&pool->all_tasks_completed);
+		pthread_mutex_unlock(&pool->task_queue_lock);
 
 	}
 }
 
-
-
-
-// void say_hello(void *threadID) {
+// void* say_hello(void *argument) {
 // 	printf("hello from thread\n");
 // }
 
