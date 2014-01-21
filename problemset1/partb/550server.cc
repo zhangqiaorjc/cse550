@@ -52,10 +52,8 @@ typedef struct {
 } client_connection;
 
 void free_client_connection(client_connection *cc) {
-// 	if (cc->filepath) delete cc->filepath;
-// 	if (cc->pipefd) delete cc->pipefd;
-// 	if (cc->mmap_addr) delete cc->mmap_addr;
-// 	if (cc->)
+ 	if (cc->mmap_addr) munmap(cc->mmap_addr, cc->file_length);
+ 	if (cc) delete cc;
 }
 
 void* read_file_return_mmap_address(char *filepath, int* file_length, void** mmap_addr) {		
@@ -263,9 +261,7 @@ int main(int argc, char **argv) {
 				num_fds_ready--;	// one less fd to scan
 
 				// send file content to client
-
-				// handle large file writes
-
+				// need to handle large file writes
 				int write_nbytes = write(i, client_connection_states[i]->write_buf_position,
 										 client_connection_states[i]->remaining_bytes_to_write);
 
@@ -277,8 +273,6 @@ int main(int argc, char **argv) {
 				client_connection_states[i]->remaining_bytes_to_write -= write_nbytes;
 				// if finished writing the entire file
 				if (client_connection_states[i]->remaining_bytes_to_write == 0) {
-					cout << "wrote " << write_nbytes << " bytes" << endl;
-					cout << "done writing everything" << endl;
 					// delete client connection state since it will be shut down
 					free_client_connection(client_connection_states[i]);
 					client_connection_states.erase(i);
@@ -291,8 +285,6 @@ int main(int argc, char **argv) {
 						while (!FD_ISSET(max_fd, &master_read_set) && !FD_ISSET(max_fd, &master_write_set))
 							max_fd--;
 					}
-				} else {
-					cout << "wrote " << write_nbytes << " bytes" << endl;
 				}
 			}
 		}
