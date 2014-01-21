@@ -31,8 +31,8 @@
 #define PIPE_WRITE 1
 
 /* TCP connection parameter */
-#define MAXBUF 256
-#define BACKLOG 10
+#define MAXBUF 512
+#define BACKLOG 1024
 
 /* ThreadPool parameter */
 #define NUM_THREADS 10

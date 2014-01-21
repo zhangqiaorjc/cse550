@@ -2,4 +2,4 @@
 
 default: 550server
 
-clean: ; rm 550server ; rm ThreadPool
+clean: ; rm 550server
