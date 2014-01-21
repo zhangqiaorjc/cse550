@@ -12,7 +12,7 @@ using namespace std;
 
 /* task struct */
 typedef struct {
-	void (*function)(void *);
+	void* (*function)(void *);
 	void *argument;
 } threadpool_task_t;
 

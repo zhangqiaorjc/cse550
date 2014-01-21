@@ -44,11 +44,11 @@ char* stripwhite(char *string);
 
 typedef struct {
 	int client_fd;
-	char filepath[MAXBUF];	// filepath requested
-	int pipefd[2];	// pipe with main event loop
-	void *mmap_addr;	// memory address of file requested
+	char filepath[MAXBUF];			// filepath requested
+	int pipefd[2];					// pipe with main event loop
+	void *mmap_addr;				// memory address of file requested
 	int file_length;
-	char *write_buf_position;	// write buffer current position
+	char *write_buf_position;		// write buffer current position
 	int remaining_bytes_to_write;	// remaining bytes to write
 } client_connection;
 
@@ -57,8 +57,8 @@ void free_client_connection(client_connection *cc) {
  	if (cc) delete cc;
 }
 
-void* read_file_return_mmap_address(client_connection *cc) {		
-
+void* read_file_return_mmap_address(void *argument) {		
+	client_connection *cc = (client_connection *) argument;
 	struct stat sb;
 
 	int file_fd = open(cc->filepath, O_RDONLY);
@@ -75,6 +75,7 @@ void* read_file_return_mmap_address(client_connection *cc) {
 	// write a single byte to pipe
 	// notifies event loop
 	write(cc->pipefd[PIPE_WRITE], "c", 1);
+	cout << "write a byte to pipe" << endl;
 	return NULL;
 }
 
@@ -256,7 +257,11 @@ int main(int argc, char **argv) {
 						max_fd = max(max_fd, cc->pipefd[PIPE_READ]);
 						pipe_map_to_client[cc->pipefd[PIPE_READ]] = cc;
 
-						read_file_return_mmap_address(cc);
+						// dispatch a worker thread to mmap
+						threadpool_task_t task;
+						task.function = &read_file_return_mmap_address;
+						task.argument = (void *) cc;
+						tp.add_task(task);
 					}
 					// finished reading from client_fd
 					FD_CLR(i, &master_read_set);
@@ -264,6 +269,8 @@ int main(int argc, char **argv) {
 				
 				} else {
 					/* pipe_read end ready to read */
+
+					cout << "pipe wakes up event loop" << endl;
 
 					// worker thread mmap return
 					client_connection *cc = pipe_map_to_client[i];
@@ -292,6 +299,8 @@ int main(int argc, char **argv) {
 			/* in write_set */
 			} else if (FD_ISSET(i, &working_write_set)) {
 				/* client_fd ready to write */
+
+				cout << "get to write to client_fd" << endl;
 
 				num_fds_ready--;	// one less fd to scan
 				client_connection *cc = client_connection_states[i];

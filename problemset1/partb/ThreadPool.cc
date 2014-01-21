@@ -3,10 +3,8 @@
 #include <iostream>
 #include <assert.h> 
 
-
 #define handle_error(msg) \
            do { perror(msg); exit(EXIT_FAILURE); } while (0)
-
 
 ThreadPool::ThreadPool(int num_threads_var, int max_task_queue_size_var) {
 	// initialize ThreadPool internal states	
@@ -51,7 +49,6 @@ void ThreadPool::add_task(threadpool_task_t new_task) {
 }
 
 void ThreadPool::wait_all_tasks_complete() {
-
 	// wait for all tasks to be completed
 	pthread_mutex_lock(&task_queue_lock);
 	while (num_incomplete_tasks > 0) {
@@ -100,13 +97,14 @@ void* worker_function(void *argument) {
 		if (pool->task_queue.size() > 0) {
 			// remove a task from queue and start running the function
 			threadpool_task_t task = pool->task_queue.front();
+
 			pool->task_queue.pop();
 
 			pthread_cond_signal(&pool->task_queue_empty);
 			pthread_mutex_unlock(&pool->task_queue_lock);
 			
 			// runs the task
-			(*(task.function))(&task.argument);
+			(*(task.function))(task.argument);
 		
 			// decrement num_incomplete_tasks
 			pthread_mutex_lock(&pool->task_queue_lock);
