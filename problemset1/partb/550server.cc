@@ -1,6 +1,7 @@
 #include "550server.h"
 #include "ThreadPool.h"
 #include <map>
+#include <iostream>
 
 #define handle_error(msg) \
            do { perror(msg); exit(EXIT_FAILURE); } while (0)
