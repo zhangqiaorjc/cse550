@@ -38,16 +38,25 @@
 #define NUM_THREADS 10
 #define MAX_TASK_QUEUE_SIZE 10
 
+
+/* mmap parameter */
+//#define MMAP_BLOCK_SIZE 65536
+#define MMAP_BLOCK_SIZE 128
+
+
 using namespace std;
 
 char* stripwhite(char *string);
 
 typedef struct {
 	int client_fd;
-	char *filepath;			// filepath requested
+	char *filepath;					// filepath requested
 	int pipefd[2];					// pipe with main event loop
 	void *mmap_addr;				// memory address of file requested
-	int file_length;
+	int file_length;				// total length of file
+	int read_offset;				// read offset for mmap
+	int read_length;				// actual read length returned from mmap
+	int read_pa_offset;				// page offset returned from mmap
 	char *write_buf_position;		// write buffer current position
 	int remaining_bytes_to_write;	// remaining bytes to write
 } client_connection;
@@ -58,7 +67,8 @@ void free_client_connection(client_connection *cc) {
  	if (cc) delete cc;
 }
 
-void* read_file_return_mmap_address(void *argument) {		
+void* read_file_return_mmap_address(void *argument) {
+	/* need to handle very large files by mmap in chunks */
 	client_connection *cc = (client_connection *) argument;
 	struct stat sb;
 
@@ -67,12 +77,36 @@ void* read_file_return_mmap_address(void *argument) {
 		// open file successfully
 		cc->file_length = sb.st_size;
 
-		// mmap to memory
-		cc->mmap_addr = mmap(NULL, cc->file_length, PROT_READ, MAP_PRIVATE, file_fd, 0);
-		// can still be MAP_FAILED
+		/* do not read beyond end of file */
+		off_t offset = cc->read_offset;
+		if (offset < sb.st_size) {   
+		    size_t length = MMAP_BLOCK_SIZE;	// mmap 64KB as a block
+		    if (offset + length > sb.st_size) {
+		        length = sb.st_size - offset;
+		        cc->read_length = length;
+		    }
+		    // offset for mmap() must be page aligned
+		    off_t pa_offset = offset & ~(sysconf(_SC_PAGE_SIZE) - 1);
+		    cc->read_pa_offset = pa_offset;
+
+		    cout << "offset = " << offset << endl;
+		    
+		    cout << "length = " << length << endl;
+
+		    cout << "pa_offset = " << pa_offset << endl;
+
+			// mmap to memory
+			cc->mmap_addr = mmap(NULL, length + offset - pa_offset,
+								 PROT_READ, MAP_PRIVATE, file_fd, pa_offset);
+			// can still be MAP_FAILED
+		} else {
+			// offset is past end of file
+			cc->mmap_addr = MAP_FAILED;
+		}
 	} else {
 		cc->mmap_addr = MAP_FAILED;
 	}
+	close(file_fd);
 	// write a single byte to pipe
 	// notifies event loop
 	write(cc->pipefd[PIPE_WRITE], "c", 1);
@@ -249,6 +283,7 @@ int main(int argc, char **argv) {
 						/* fetch file to memory */
 						cc->filepath = new char[strlen(filepath)];
 						strcpy(cc->filepath, filepath);
+						cc->read_offset = 0;
 						
 						/* create pipe for worker thread */
 						if (pipe(cc->pipefd) == -1)
@@ -287,10 +322,13 @@ int main(int argc, char **argv) {
 					} else {
 						// wait for client to be writable in next select call
 						// set client_fd in write_set
-						cc->write_buf_position = (char *)cc->mmap_addr;
-						cc->remaining_bytes_to_write = cc->file_length;
+						cc->write_buf_position = (char *)cc->mmap_addr
+												 + (off_t)cc->read_offset
+												 - (off_t)cc->read_pa_offset;
+						cc->remaining_bytes_to_write = cc->read_length;
 						FD_SET(cc->client_fd, &master_write_set);
 						max_fd = max(max_fd, i);
+
 					}
 					// remove pipefd from read_set
 					FD_CLR(i, &master_read_set);
@@ -311,6 +349,8 @@ int main(int argc, char **argv) {
 				// need to handle large file writes
 				int write_nbytes = write(i, cc->write_buf_position,
 										 cc->remaining_bytes_to_write);
+
+				cout << "write to client === " << write_nbytes << " bytes" << endl;
 
 				if (write_nbytes < 0)
 					perror("write to socket");
