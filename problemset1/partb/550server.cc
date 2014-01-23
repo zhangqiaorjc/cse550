@@ -1,27 +1,5 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <readline/readline.h>
-#include <readline/history.h>
-#include <ctype.h>
-
-#include <arpa/inet.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <sys/types.h>
-#include <errno.h>
-#include <stdio.h>
-
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <sys/time.h>
-#include <signal.h>
-
-#include <iostream>
-
+#include "550server.h"
 #include "ThreadPool.h"
-
 #include <map>
 
 #define handle_error(msg) \
@@ -31,7 +9,20 @@
 #define PIPE_WRITE 1
 
 /* TCP connection parameter */
-#define MAXBUF 512
+#define MAXBUF 1024
+#define BACKLOG 1024
+
+/* ThreadPool parameter */
+#define NUM_THREADS 10
+#define MAX_TASK_QUEUE_SIZE 10
+#define handle_error(msg) \
+           do { perror(msg); exit(EXIT_FAILURE); } while (0)
+
+#define PIPE_READ 0
+#define PIPE_WRITE 1
+
+/* TCP connection parameter */
+#define MAXBUF 1024
 #define BACKLOG 1024
 
 /* ThreadPool parameter */
@@ -40,62 +31,11 @@
 
 using namespace std;
 
-char* stripwhite(char *string);
 
-typedef struct {
-	int client_fd;
-	char *filepath;			// filepath requested
-	int pipefd[2];					// pipe with main event loop
-	void *mmap_addr;				// memory address of file requested
-	int file_length;
-	char *write_buf_position;		// write buffer current position
-	int remaining_bytes_to_write;	// remaining bytes to write
-} client_connection;
+/*
+ * Server main()
+ */
 
-void free_client_connection(client_connection *cc) {
- 	if (cc->mmap_addr) munmap(cc->mmap_addr, cc->file_length);
- 	if (cc->filepath) delete cc->filepath;
- 	if (cc) delete cc;
-}
-
-void* read_file_return_mmap_address(void *argument) {		
-	client_connection *cc = (client_connection *) argument;
-	struct stat sb;
-
-	int file_fd = open(cc->filepath, O_RDONLY);
-	if (file_fd != -1 && fstat(file_fd, &sb) != -1) {
-		// open file successfully
-		cc->file_length = sb.st_size;
-
-		// mmap to memory
-		cc->mmap_addr = mmap(NULL, cc->file_length, PROT_READ, MAP_PRIVATE, file_fd, 0);
-		// can still be MAP_FAILED
-	} else {
-		cc->mmap_addr = MAP_FAILED;
-	}
-	// write a single byte to pipe
-	// notifies event loop
-	write(cc->pipefd[PIPE_WRITE], "c", 1);
-	cout << "write a byte to pipe" << endl;
-	return NULL;
-}
-
-int remove_fd_from_fdsets(int i, int max_fd, fd_set *read_set, fd_set *write_set) {
-	if (i == max_fd) {
-		while (!FD_ISSET(max_fd, read_set) 
-			&& !FD_ISSET(max_fd, write_set))
-			max_fd--;
-	}
-	return max_fd;
-}
-			
-
-void close_all_fds(int max_fd, fd_set &master_read_set, fd_set &master_write_set) {
-	for (int i = 0; i <= max_fd; ++i) {
-		if (FD_ISSET(i, &master_read_set) || FD_ISSET(i, &master_write_set))
-			close(i);
-	}
-}
 
 int main(int argc, char **argv) {
 
@@ -153,7 +93,7 @@ int main(int argc, char **argv) {
 	
 	// timeout on select
 	struct timeval timeout;
-	timeout.tv_sec = 3 * 60;
+	timeout.tv_sec = 5 * 60;	// 5 min timeout
 	timeout.tv_usec = 0;
 
 	// if client close connection during write, will raise SIGPIPE
@@ -185,6 +125,8 @@ int main(int argc, char **argv) {
 
 		if (rc == 0) {
 			// timeout
+			perror("timeout");
+			continue;
 		}
 
 		int num_fds_ready = rc;
@@ -224,7 +166,6 @@ int main(int argc, char **argv) {
 					int read_nbytes = read(i, buffer, MAXBUF);
 
 					// handle different read cases
-					cout << "read_nbytes = " << read_nbytes << endl;
 					if (read_nbytes == -1) {
 						if (errno != EWOULDBLOCK && errno != EAGAIN) {
 							// connection error
@@ -272,8 +213,6 @@ int main(int argc, char **argv) {
 				} else {
 					/* pipe_read end ready to read */
 
-					cout << "pipe wakes up event loop" << endl;
-
 					// worker thread mmap return
 					client_connection *cc = pipe_map_to_client[i];
 
@@ -301,8 +240,6 @@ int main(int argc, char **argv) {
 			/* in write_set */
 			} else if (FD_ISSET(i, &working_write_set)) {
 				/* client_fd ready to write */
-
-				cout << "get to write to client_fd" << endl;
 
 				num_fds_ready--;	// one less fd to scan
 				client_connection *cc = client_connection_states[i];
@@ -335,6 +272,56 @@ int main(int argc, char **argv) {
 	printf("terminate server.\n");
 	close_all_fds(max_fd, master_read_set, master_write_set);
 	return 0;
+}
+
+/*
+ * Helper function definitions
+ */
+
+
+void free_client_connection(client_connection *cc) {
+ 	if (cc->mmap_addr) munmap(cc->mmap_addr, cc->file_length);
+ 	if (cc->filepath) delete cc->filepath;
+ 	if (cc) delete cc;
+}
+
+void* read_file_return_mmap_address(void *argument) {		
+	client_connection *cc = (client_connection *) argument;
+	struct stat sb;
+
+	int file_fd = open(cc->filepath, O_RDONLY);
+	if (file_fd != -1 && fstat(file_fd, &sb) != -1) {
+		// open file successfully
+		cc->file_length = sb.st_size;
+
+		// mmap to memory
+		cc->mmap_addr = mmap(NULL, cc->file_length, PROT_READ, MAP_PRIVATE, file_fd, 0);
+		// can still be MAP_FAILED
+	} else {
+		cc->mmap_addr = MAP_FAILED;
+	}
+	close(file_fd);
+	// write a single byte to pipe
+	// notifies event loop
+	write(cc->pipefd[PIPE_WRITE], "c", 1);
+	return NULL;
+}
+
+int remove_fd_from_fdsets(int i, int max_fd, fd_set *read_set, fd_set *write_set) {
+	if (i == max_fd) {
+		while (!FD_ISSET(max_fd, read_set) 
+			&& !FD_ISSET(max_fd, write_set))
+			max_fd--;
+	}
+	return max_fd;
+}
+			
+
+void close_all_fds(int max_fd, fd_set &master_read_set, fd_set &master_write_set) {
+	for (int i = 0; i <= max_fd; ++i) {
+		if (FD_ISSET(i, &master_read_set) || FD_ISSET(i, &master_write_set))
+			close(i);
+	}
 }
 
 // remove leading and trailing whitespace

@@ -1,3 +1,6 @@
+#ifndef SHELL_H
+#define SHELL_H
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -38,3 +41,6 @@ void parse_execute_line(char *s);
 // fork off child and recursively call itself
 // on success, do not return
 void parse_execute_line_helper(char *command_list[], int command_counts, int command_index);
+
+
+#endif /* SHELL_H */
