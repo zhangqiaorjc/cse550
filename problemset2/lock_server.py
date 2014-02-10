@@ -18,158 +18,171 @@ LOCK_WAIT = 3
 UNLOCK_SUCCESS = 0
 UNLOCK_FAILURE = 1
 
-MAX_INSTANCES = 1000
+MAX_PAXOS_INSTANCES = 1000
+
+NUM_LOCKS = 20
+
+backlog = 10
+maxbuf = 1024
+
+paxos_config_file = open("paxos_group_config.json", "r")
+paxos_config = json.loads(paxos_config_file.read())
+
 
 class LockServer:
-	def __init__(self, server_ip, port, num_locks):
-		# server states
-		self.server_ip = server_ip
-		self.port = port
-		# map from client_id to client_conn
-		self.client_conns = {}
-		self.client_commands = {}
+    def __init__(self, lock_server_id, num_locks):
+        # server states
+        self.lock_server_id = lock_server_id
+        self.lock_server_address = tuple(paxos_config["lock_servers"][str(lock_server_id)])
 
-		# lock states
-		self.num_locks = num_locks
-		self.lock_states = []
-		self.lock_owners = []
-		self.lock_wait_queues = []
-		for i in xrange(num_locks):
-			self.lock_states += [AVAILABLE]
-			self.lock_owners += [NO_OWNER]
-			self.lock_wait_queues += [Queue.Queue()]
+        # map from client_id to client_conn
+        self.client_conns = {}
+        self.client_commands = {}
 
-		# Paxos state
-		self.decisions = []
-		self.proposals = []
+        # lock states
+        self.num_locks = num_locks
+        self.lock_states = []
+        self.lock_owners = []
+        self.lock_wait_queues = []
+        for i in xrange(num_locks):
+            self.lock_states += [AVAILABLE]
+            self.lock_owners += [NO_OWNER]
+            self.lock_wait_queues += [Queue.Queue()]
 
-	def lock(self, x, client_id):	
-		print "trying to lock " + str(x) + "from " + str(client_id)
+        # Paxos state
+        self.decisions = []
+        self.proposals = []
+        self.slot_num = 0
 
-		# error cases
-		if (x < 0 or x >= self.num_locks):
-			# lock doesn't exist
-			self.reply(client_id, LOCK_FAILURE)
-			return LOCK_FAILURE
-		
-		if (self.lock_owners[x] == client_id):
-			# repeated lock by the same client
-			self.reply(client_id, LOCK_SUCCESS)
-			return LOCK_SUCCESS
+    def lock(self, x, client_id):   
+        print "trying to lock " + str(x) + "from " + str(client_id)
 
-		# acquire lock
-		if (self.lock_states[x] == AVAILABLE
-			and self.lock_owners[x] == NO_OWNER):
-			# lock
-			self.lock_states[x] = UNAVAILABLE
-			self.lock_owners[x] = client_id
-			self.reply(client_id, LOCK_SUCCESS)
-			return LOCK_SUCCESS
-		else:
-			# lock held by someone else
-			# client blocked
-			self.lock_wait_queues[x].put(client_id)
-			return LOCK_WAIT
+        # error cases
+        if (x < 0 or x >= self.num_locks):
+            # lock doesn't exist
+            self.reply_to_client(client_id, LOCK_FAILURE)
+            return LOCK_FAILURE
+        
+        if (self.lock_owners[x] == client_id):
+            # repeated lock by the same client
+            self.reply_to_client(client_id, LOCK_SUCCESS)
+            return LOCK_SUCCESS
 
-	def unlock(self, x, client_id):
-		print "trying to unlock " + str(x) + "from " + str(client_id)
+        # acquire lock
+        if (self.lock_states[x] == AVAILABLE
+            and self.lock_owners[x] == NO_OWNER):
+            # lock
+            self.lock_states[x] = UNAVAILABLE
+            self.lock_owners[x] = client_id
+            self.reply_to_client(client_id, LOCK_SUCCESS)
+            return LOCK_SUCCESS
+        else:
+            # lock held by someone else
+            # client blocked
+            self.lock_wait_queues[x].put(client_id)
+            return LOCK_WAIT
 
-		# error cases
-		if (x < 0 or x >= self.num_locks):
-			# lock doesn't exist
-			self.reply(client_id, UNLOCK_FAILURE)
-			return UNLOCK_FAILURE
+    def unlock(self, x, client_id):
+        print "trying to unlock " + str(x) + "from " + str(client_id)
 
-		if (self.lock_owners[x] != client_id):
-			# unlock someone else's lock
-			self.reply(client_id, UNLOCK_FAILURE)
-			return UNLOCK_FAILURE
+        # error cases
+        if (x < 0 or x >= self.num_locks):
+            # lock doesn't exist
+            self.reply_to_client(client_id, UNLOCK_FAILURE)
+            return UNLOCK_FAILURE
 
-		if (self.lock_owners[x] == NO_OWNER):
-			# unlock an available lock
-			self.reply(client_id, UNLOCK_SUCCESS)
-			return UNLOCK_SUCCESS
+        if (self.lock_owners[x] != client_id):
+            # unlock someone else's lock
+            self.reply_to_client(client_id, UNLOCK_FAILURE)
+            return UNLOCK_FAILURE
 
-
-		if (self.lock_owners[x] == client_id
-			and self.lock_states[x] == UNAVAILABLE):
-			if not self.lock_wait_queues[x].empty():
-				# someone else waiting for the lock
-				# hand over lock
-				waiting_client_id = self.lock_wait_queues[x].get()
-				self.lock_owners[x] = waiting_client_id
-				self.reply(waiting_client_id, LOCK_SUCCESS)
-			else:
-				# no one waiting for the lock
-				self.lock_owners[x] = NO_OWNER
-				self.lock_states[x] = AVAILABLE
-
-			self.reply(client_id, UNLOCK_SUCCESS)
-			return UNLOCK_SUCCESS
-
-	def generate_response(self, command_id, result):
-	    response_msg = {"type" : "response",
-	                    "result" : {"command_id" : command_id,
-	                                  "result_code" : result
-	                                }}
-	    return response_msg
+        if (self.lock_owners[x] == NO_OWNER):
+            # unlock an available lock
+            self.reply_to_client(client_id, UNLOCK_SUCCESS)
+            return UNLOCK_SUCCESS
 
 
-	def reply(self, client_id, response_state):
-		client_conn = self.client_conns[client_id]
-		command_id = self.client_commands[client_id]["command_id"]
-		response_msg = self.generate_response(command_id, response_state)
-		client_conn.send(json.dumps(response_msg))
-		client_conn.close()
+        if (self.lock_owners[x] == client_id
+            and self.lock_states[x] == UNAVAILABLE):
+            if not self.lock_wait_queues[x].empty():
+                # someone else waiting for the lock
+                # hand over lock
+                waiting_client_id = self.lock_wait_queues[x].get()
+                self.lock_owners[x] = waiting_client_id
+                self.reply_to_client(waiting_client_id, LOCK_SUCCESS)
+            else:
+                # no one waiting for the lock
+                self.lock_owners[x] = NO_OWNER
+                self.lock_states[x] = AVAILABLE
 
-	def perform(self, command):
-		# TODO
-		self.decisions += [command]
+            self.reply_to_client(client_id, UNLOCK_SUCCESS)
+            return UNLOCK_SUCCESS
 
-		client_id = command["client_id"]
-		op = command["op"].split(" ")
-		opcode = op[0]
-		lock_num = int(op[1])
-		if opcode == "lock":
-			self.lock(lock_num, client_id)
-		elif opcode == "unlock":
-			self.unlock(lock_num, client_id)
-		else:
-			print "error"
+    def generate_response(self, command_id, result):
+        response_msg = {"type" : "response",
+                        "result" : {"command_id" : command_id,
+                                      "result_code" : result
+                                    }}
+        return response_msg
 
 
-	def serve_forever(self):
-		backlog = 5 
-		maxbuf = 1024
+    def reply_to_client(self, client_id, response_state):
+        client_conn = self.client_conns[client_id]
+        command_id = self.client_commands[client_id]["command_id"]
+        response_msg = self.generate_response(command_id, response_state)
+        client_conn.send(json.dumps(response_msg))
+        client_conn.close()
 
-		# create listening socket
-		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-		s.bind((self.server_ip, self.port)) 
-		s.listen(backlog)
+    def perform(self, command):
+        # TODO
+        self.decisions += [command]
 
-		# event loop
-		while 1:
-		    client_conn, address = s.accept() 
-		    data = client_conn.recv(maxbuf).strip()
-		    if data: 
-		       msg = json.loads(data)
-		       if msg["type"] == "request":
-		       		command = msg["command"]
-		       		client_id = command["client_id"] 
-		       		self.client_conns[client_id] = client_conn
-		       		self.client_commands[client_id] = command
-		       		self.perform(command)
-		    else:
-		    	client_conn.close()
+        client_id = command["client_id"]
+        op = command["op"].split(" ")
+        opcode = op[0]
+        lock_num = int(op[1])
+        if opcode == "lock":
+            self.lock(lock_num, client_id)
+        elif opcode == "unlock":
+            self.unlock(lock_num, client_id)
+        else:
+            print "error"
 
+
+    def serve_forever(self):
+
+        # create listening socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind(self.lock_server_address) 
+        s.listen(backlog)
+
+        # event loop
+        while 1:
+            client_conn, address = s.accept() 
+            data = client_conn.recv(maxbuf).strip()
+            if data: 
+                msg = json.loads(data)
+                if msg["type"] == "request":
+                        command = msg["command"]
+                        client_id = command["client_id"] 
+                        self.client_conns[client_id] = client_conn
+                        self.client_commands[client_id] = command
+                        self.perform(command)
+                else:
+                    print "wrong message received"
+                    client_conn.close()
+            else:
+                print "null message received"
+                client_conn.close()
 
 
 if __name__ == "__main__":
-    server = LockServer('127.0.0.1', 1111, 20)
-    # terminate with Ctrl-C
+    lock_server_id = sys.argv[1]
+
+    server = LockServer(lock_server_id, NUM_LOCKS)
     try:
-        print "Lock Server started"
+        print "Lock Server #" + lock_server_id + " started at " + str(server.lock_server_address)
         server.serve_forever()
     except KeyboardInterrupt:
         sys.exit(0)

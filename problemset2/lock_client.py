@@ -17,17 +17,19 @@ LOCK_WAIT = 3
 UNLOCK_SUCCESS = 0
 UNLOCK_FAILURE = 1
 
-server_ip = '127.0.0.1'
-PORT = 1111
-
+paxos_config_file = open("paxos_group_config.json", "r")
+paxos_config = json.loads(paxos_config_file.read())
 
 class LockClient:
 
-    def connect_to_server(self, server_ip, port):
-        # send create circuit request to ip
+    def __init__(self, client_id):
+        self.client_id = client_id
+
+    def connect_to_server(self, lock_server_id):
+        lock_server_address = tuple(paxos_config["lock_servers"][lock_server_id])
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.connect((server_ip, port))
+        self.sock.connect(lock_server_address)
 
     def generate_request(self, client_id, command_id, op):
         request_msg = {"type" : "request",
@@ -37,8 +39,9 @@ class LockClient:
                                     }}
         return request_msg
 
-    def send_request_recv_response(self, client_id, command_id, op):
-        request_msg = self.generate_request(client_id, command_id, op)
+    def send_request_recv_response(self, command_id, op):
+        request_msg = self.generate_request(
+                        self.client_id, command_id, op)
         self.sock.send(json.dumps(request_msg))
 
         maxbuf = 1024
@@ -50,18 +53,22 @@ class LockClient:
             print "result_code = " + str(result["result_code"])        
       
 if __name__ == "__main__":
-    client = LockClient()
-    client.connect_to_server(server_ip, PORT)
-    client.send_request_recv_response(1, 1, "lock 1")
+    client_id = int(sys.argv[1])
+    client = LockClient(client_id)
 
-    client.connect_to_server(server_ip, PORT)
-    client.send_request_recv_response(1, 2, "lock 2")
+    lock_server_id = sys.argv[2]
+
+    client.connect_to_server(lock_server_id)
+    client.send_request_recv_response(1, "lock 1")
+
+    client.connect_to_server(lock_server_id)
+    client.send_request_recv_response(2, "lock 2")
 
     time.sleep(4)
 
-    client.connect_to_server(server_ip, PORT)
-    client.send_request_recv_response(1, 3, "unlock 1")
+    client.connect_to_server(lock_server_id)
+    client.send_request_recv_response(3, "unlock 1")
     
-    client.connect_to_server(server_ip, PORT)
-    client.send_request_recv_response(1, 4, "unlock 2")
+    client.connect_to_server(lock_server_id)
+    client.send_request_recv_response(4, "unlock 2")
 
