@@ -57,7 +57,6 @@ class Scout:
     def send_p1a(self, acceptor_id):
         # create accceptor socket
         acceptor_address = tuple(paxos_config["acceptors"][acceptor_id])
-        print acceptor_address
         acceptor_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         acceptor_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         acceptor_sock.connect(acceptor_address)
@@ -107,7 +106,7 @@ class Scout:
                             print "quorum reached"
                             self.send_adopted()
                             # completes a prepare phase
-                            #return
+                            return
                     else:
                         # acceptors already adopted a higher leader_ballot_num
                         # prepare phase fails
@@ -124,7 +123,6 @@ class Scout:
     def send_adopted(self):
         adopted_msg = self.generate_adopted()
         print "ready to send to leader adopted message" + str(adopted_msg)
-        return
         # connect to leader
         leader_address = tuple(paxos_config["leaders"][self.leader_id])
         leader_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

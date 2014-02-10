@@ -57,7 +57,6 @@ class Commander:
     def send_p2a(self, acceptor_id):
         # create accceptor socket
         acceptor_address = tuple(paxos_config["acceptors"][acceptor_id])
-        print acceptor_address
         acceptor_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         acceptor_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         acceptor_sock.connect(acceptor_address)
