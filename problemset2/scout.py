@@ -32,7 +32,7 @@ class Scout:
         # Paxos state
         self.scout_id = scout_id
         self.leader_ballot_num = leader_ballot_num
-        self.all_proposal_values = []
+        self.accepted_proposals = []
 
     def generate_p1a(self):
         p1a_msg = {"type" : "p1a",
@@ -44,7 +44,7 @@ class Scout:
     def generate_adopted(self):
         adopted_msg = {"type" : "adopted",
                         "ballot_num" : self.leader_ballot_num,
-                        "all_proposal_values" : self.all_proposal_values
+                        "accepted_proposals" : self.accepted_proposals
                       }
         return adopted_msg
 
@@ -81,7 +81,7 @@ class Scout:
             self.send_p1a(acceptor_id)
 
         wait_for_acceptor_ids = acceptor_ids
-        all_proposal_values = [] 
+        accepted_proposals = [] 
 
         # event loop
         while 1:
@@ -93,11 +93,11 @@ class Scout:
                 if msg["type"] == "p1b":
                     acceptor_id = msg["acceptor_id"]
                     acceptor_ballot_num = msg["ballot_num"]
-                    accepted_values = msg["accepted_values"]
+                    accepted_proposals = msg["accepted_proposals"]
                     print "data from acceptor" + str(msg)
                     if acceptor_ballot_num == self.leader_ballot_num:
                         # acceptor adopts leader_ballot_num
-                        self.all_proposal_values.extend(accepted_values)
+                        self.accepted_proposals.extend(accepted_proposals)
                         print wait_for_acceptor_ids
                         wait_for_acceptor_ids.remove(acceptor_id)
                         print "remove one waiting"

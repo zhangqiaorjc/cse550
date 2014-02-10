@@ -34,13 +34,13 @@ class Acceptor:
         # Paxos state
         self.ballot_num = -1
         self.acceptor_id = acceptor_id
-        self.accepted_values = []
+        self.accepted_proposals = []
 
     def generate_p1b(self):
         p1b_msg = {"type" : "p1b",
                     "acceptor_id" : self.acceptor_id,
                     "ballot_num" : self.ballot_num,
-                    "accepted_values" : self.accepted_values
+                    "accepted_proposals" : self.accepted_proposals
                   }
         return p1b_msg
 
@@ -119,7 +119,7 @@ class Acceptor:
 
                     if leader_ballot_num >= self.ballot_num:
                         self.ballot_num = leader_ballot_num
-                        self.accepted_values += [proposal]
+                        self.accepted_proposals += [proposal]
 
                     p2b_msg = self.generate_p2b()
                     self.reply_to_commander(leader_id, p2b_msg)

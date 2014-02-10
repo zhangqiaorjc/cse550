@@ -43,7 +43,7 @@ class Commander:
     def generate_decision(self):
         adopted_msg = {"type" : "decision",
                         "slot_num" : self.proposal["slot_num"],
-                        "command" : self.proposal["command"]
+                        "proposal_value" : self.proposal["proposal_value"]
                       }
         return adopted_msg
 
@@ -107,7 +107,6 @@ class Commander:
 
         wait_for_acceptor_ids = acceptor_ids
 
-
         # event loop
         while 1:
             # listen for acceptor p1b response
@@ -166,7 +165,7 @@ if __name__ == "__main__":
     commander_id = sys.argv[1]
     leader_id = sys.argv[2]
 
-    proposal = {"ballot_num" : 3, "slot_num" : 1, "command" : "lock 1"}
+    proposal = {"ballot_num" : 3, "slot_num" : 1, "proposal_value" : "lock 1"}
     commander = Commander(leader_id, commander_id, proposal)
 
     try:

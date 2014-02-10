@@ -50,9 +50,28 @@ class LockServer:
             self.lock_wait_queues += [Queue.Queue()]
 
         # Paxos state
-        self.decisions = []
-        self.proposals = []
+        self.decisions = {}
+        self.proposals = {}
         self.slot_num = 0
+
+    def generate_propose(self):
+        propose_msg = {"type" : "propose",
+                        "slot_num" : self.slot_num,
+                        "proposal_value" : self.proposal_value
+                        }
+        return propose_msg
+
+    def send_propose(self, leader_id):
+        # create accceptor socket
+        leader_address = tuple(paxos_config["leaders"][leader_id])
+        leader_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        leader_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        leader_sock.connect(leader_address)
+
+        # send message to leader
+        propose_msg = self.generate_propose()
+        leader_sock.send(json.dumps(propose_msg))
+        leader_sock.close()
 
     def lock(self, x, client_id):   
         print "trying to lock " + str(x) + "from " + str(client_id)
