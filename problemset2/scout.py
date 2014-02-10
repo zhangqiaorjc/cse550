@@ -111,10 +111,6 @@ class Scout:
                     else:
                         # acceptors already adopted a higher leader_ballot_num
                         # prepare phase fails
-                        
-                        # TODO: delete
-                        acceptor_conn.close()
-
                         self.send_preempted(acceptor_ballot_num)
                         return
                 else:

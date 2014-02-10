@@ -33,7 +33,7 @@ class LockServer:
     def __init__(self, lock_server_id, num_locks):
         # server states
         self.lock_server_id = lock_server_id
-        self.lock_server_address = tuple(paxos_config["lock_servers"][str(lock_server_id)])
+        self.lock_server_address = tuple(paxos_config["replicas"][str(lock_server_id)])
 
         # map from client_id to client_conn
         self.client_conns = {}

@@ -67,18 +67,17 @@ class Commander:
         acceptor_sock.send(json.dumps(p2a_msg))
         acceptor_sock.close()
 
-    def send_decision(self, acceptor_id):
+    def send_decision(self, replica_id):
         # create accceptor socket
-        acceptor_address = tuple(paxos_config["acceptors"][acceptor_id])
-        print acceptor_address
-        acceptor_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        acceptor_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        acceptor_sock.connect(acceptor_address)
+        replica_address = tuple(paxos_config["replicas"][replica_id])
+        replica_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        replica_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        replica_conn.connect(replica_address)
 
         # send message to acceptor
         decision_msg = self.generate_decision()
-        acceptor_sock.send(json.dumps(decision_msg))
-        acceptor_sock.close()
+        replica_conn.send(json.dumps(decision_msg))
+        replica_conn.close()
 
     def send_preempted(self, acceptor_ballot_num):
         preempted_msg = self.generate_preempted(acceptor_ballot_num)
@@ -129,19 +128,15 @@ class Commander:
                         # heard from majority of acceptors
                         if len(wait_for_acceptor_ids) <= len(acceptor_ids) / 2:
                             print "quorum reached"
-                            for acceptor_id in acceptor_ids:
-                                print "send decision to acceptor_id = " + acceptor_id
-                                self.send_decision(acceptor_id)
+                            for replica_id in replica_ids:
+                                print "send decision to replica_id = " + replica_id
+                                self.send_decision(replica_id)
                             # completes accept phase
                             return
                     else:
                         # acceptors already adopted a higher leader_ballot_num
                         # accept phase fails
                         preempted_msg = self.generate_preempted(acceptor_ballot_num)
-
-                        # TODO: delete
-                        acceptor_conn.close()
-
                         self.send_preempted(acceptor_ballot_num)
                         return
                 else:

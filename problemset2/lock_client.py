@@ -26,7 +26,7 @@ class LockClient:
         self.client_id = client_id
 
     def connect_to_server(self, lock_server_id):
-        lock_server_address = tuple(paxos_config["lock_servers"][lock_server_id])
+        lock_server_address = tuple(paxos_config["replicas"][lock_server_id])
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.connect(lock_server_address)
