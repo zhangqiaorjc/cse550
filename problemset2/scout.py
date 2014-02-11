@@ -16,7 +16,7 @@ UNLOCK_SUCCESS = 0
 UNLOCK_FAILURE = 1
 
 backlog = 10
-maxbuf = 1024
+maxbuf = 10240
 
 paxos_config_file = open("paxos_group_config.json", "r")
 paxos_config = json.loads(paxos_config_file.read())
@@ -63,7 +63,7 @@ class Scout:
 
         # send message to acceptor
         p1a_msg = self.generate_p1a()
-        acceptor_sock.send(json.dumps(p1a_msg))
+        acceptor_sock.sendall(json.dumps(p1a_msg))
         acceptor_sock.close()
 
     def send_p1a_recv_p1b(self):
@@ -98,9 +98,7 @@ class Scout:
                     if acceptor_ballot_num == self.leader_ballot_num:
                         # acceptor adopts leader_ballot_num
                         self.accepted_proposals.extend(accepted_proposals)
-                        print wait_for_acceptor_ids
                         wait_for_acceptor_ids.remove(acceptor_id)
-                        print "remove one waiting"
                         # heard from majority of acceptors
                         if len(wait_for_acceptor_ids) <= len(acceptor_ids) / 2:
                             print "quorum reached"
@@ -122,14 +120,14 @@ class Scout:
 
     def send_adopted(self):
         adopted_msg = self.generate_adopted()
-        print "ready to send to leader adopted message" + str(adopted_msg)
+        print "ready to send to leader adopted message"# + str(adopted_msg)
         # connect to leader
         leader_address = tuple(paxos_config["leaders"][self.leader_id])
         leader_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         leader_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         leader_conn.connect(leader_address)
         # send msg
-        leader_conn.send(json.dumps(adopted_msg))
+        leader_conn.sendall(json.dumps(adopted_msg))
         leader_conn.close()
 
     def send_preempted(self, acceptor_ballot_num):
@@ -142,7 +140,7 @@ class Scout:
         leader_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         leader_conn.connect(leader_address)
         # send msg
-        leader_conn.send(json.dumps(preempted_msg))
+        leader_conn.sendall(json.dumps(preempted_msg))
         leader_conn.close()
 
 if __name__ == "__main__":

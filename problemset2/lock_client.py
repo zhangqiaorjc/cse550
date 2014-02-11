@@ -20,16 +20,27 @@ UNLOCK_FAILURE = 1
 paxos_config_file = open("paxos_group_config.json", "r")
 paxos_config = json.loads(paxos_config_file.read())
 
+backlog = 10
+maxbuf = 10240
+
 class LockClient:
 
     def __init__(self, client_id):
         self.client_id = client_id
+        self.client_address = tuple(paxos_config["lock_clients"][client_id])
+        print self.client_address
 
-    def connect_to_server(self, lock_server_id):
-        lock_server_address = tuple(paxos_config["replicas"][lock_server_id])
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.connect(lock_server_address)
+    def send_request_to_replica(self, replica_id, request_msg):
+        # send request to replica
+        print "client #" + str(self.client_id) \
+                + " send request " + str(request_msg) \
+                + "to replica # " + str(replica_id)
+        replica_address = tuple(paxos_config["replicas"][replica_id])
+        replica_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        replica_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        replica_conn.connect(replica_address)
+        replica_conn.sendall(json.dumps(request_msg))
+        replica_conn.close()
 
     def generate_request(self, client_id, command_id, op):
         request_msg = {"type" : "request",
@@ -40,35 +51,46 @@ class LockClient:
         return request_msg
 
     def send_request_recv_response(self, command_id, op):
-        request_msg = self.generate_request(
-                        self.client_id, command_id, op)
-        self.sock.send(json.dumps(request_msg))
+        # create listening socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind(self.client_address) 
+        s.listen(backlog)
 
-        maxbuf = 1024
-        data = self.sock.recv(maxbuf).strip()
+        # generate request
+        request_msg = self.generate_request(self.client_id, command_id, op)
+        # send request to each server
+        for replica_id in paxos_config["replicas"].keys():
+            self.send_request_to_replica(replica_id, request_msg)
+        
+        # recv response
+        replica_conn, address = s.accept()
+        data = replica_conn.recv(maxbuf).strip()
         if data:
-            response = json.loads(data)
-            result = response["result"]
-            print "cid = " + str(result["command_id"])
-            print "result_code = " + str(result["result_code"])        
-      
+            msg = json.loads(data)
+            if msg["type"] == "response":
+                print "client #" + self.client_id + " recv response from replica " 
+                result = msg["result"]
+                print "command_id = " + str(result["command_id"])
+                print "result_code = " + str(result["result_code"])
+        replica_conn.close()
+        s.close()
+
 if __name__ == "__main__":
-    client_id = int(sys.argv[1])
+    client_id = sys.argv[1]
     client = LockClient(client_id)
 
-    lock_server_id = sys.argv[2]
+    print "Lock client #" + client_id + " started at " + str(client.client_address)
+        
 
-    client.connect_to_server(lock_server_id)
-    client.send_request_recv_response(1, "lock 1")
+    command_lists = []
+    command_lists += [("0", "lock 0")]
+    command_lists += [("1", "lock 1")]
+    command_lists += [("2", "unlock 0")]
+    command_lists += [("3", "unlock 1")]
 
-    client.connect_to_server(lock_server_id)
-    client.send_request_recv_response(2, "lock 2")
+    for command in command_lists:
+        client.send_request_recv_response(command[0], command[1])
 
-    time.sleep(4)
-
-    client.connect_to_server(lock_server_id)
-    client.send_request_recv_response(3, "unlock 1")
-    
-    client.connect_to_server(lock_server_id)
-    client.send_request_recv_response(4, "unlock 2")
+    print "client done and exiting"
 

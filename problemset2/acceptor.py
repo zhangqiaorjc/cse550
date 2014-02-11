@@ -21,7 +21,7 @@ UNLOCK_FAILURE = 1
 MAX_INSTANCES = 1000
 
 backlog = 10
-maxbuf = 1024
+maxbuf = 10240
 
 paxos_config_file = open("paxos_group_config.json", "r")
 paxos_config = json.loads(paxos_config_file.read())
@@ -55,7 +55,7 @@ class Acceptor:
     def reply_to_scout(self, leader_id, msg):
         # use scout port
         scout_address = tuple(paxos_config["scouts"][leader_id])
-        print "reply to scout " + str(scout_address)
+        print "reply to scout #" + str(leader_id) + " msg = " + str(msg)
         
         # create leader connection
         scout_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -75,6 +75,7 @@ class Acceptor:
     def reply_to_commander(self, leader_id, msg):
         # use commander port
         commander_address = tuple(paxos_config["commanders"][leader_id])
+        print "reply to commander #" + str(leader_id) + " msg = " + str(msg)
         
         # create leader connection
         commander_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -100,6 +101,7 @@ class Acceptor:
             if data: 
                 msg = json.loads(data)
                 if msg["type"] == "p1a":
+                    print "recv p1a"
                     leader_id = msg["leader_id"]
                     # asked to prepare ballot number b
                     leader_ballot_num = msg["ballot_num"] 
@@ -107,17 +109,22 @@ class Acceptor:
                     if leader_ballot_num > self.ballot_num:
                         # if prepare msg has a larger ballot num
                         # promise to a larger ballot num
+                        print "promise to a larger ballot num = " \
+                            + str(leader_ballot_num) 
                         self.ballot_num = leader_ballot_num
 
                     p1b_msg = self.generate_p1b()
                     self.reply_to_scout(leader_id, p1b_msg)
 
                 elif msg["type"] == "p2a":
+                    print "recv p2a"
                     leader_id = msg["leader_id"]
                     proposal = msg["proposal"]
                     leader_ballot_num = proposal["ballot_num"] 
 
                     if leader_ballot_num >= self.ballot_num:
+                        print "accept proposal with ballot_num = "\
+                            + str(leader_ballot_num) 
                         self.ballot_num = leader_ballot_num
                         self.accepted_proposals += [proposal]
 

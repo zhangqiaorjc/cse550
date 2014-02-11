@@ -23,7 +23,7 @@ MAX_PAXOS_INSTANCES = 1000
 NUM_LOCKS = 20
 
 backlog = 10
-maxbuf = 1024
+maxbuf = 10240
 
 paxos_config_file = open("paxos_group_config.json", "r")
 paxos_config = json.loads(paxos_config_file.read())
@@ -34,10 +34,6 @@ class LockServer:
         # server states
         self.lock_server_id = lock_server_id
         self.lock_server_address = tuple(paxos_config["replicas"][str(lock_server_id)])
-
-        # map from client_id to client_conn
-        self.client_conns = {}
-        self.client_commands = {}
 
         # lock states
         self.num_locks = num_locks
@@ -50,41 +46,22 @@ class LockServer:
             self.lock_wait_queues += [Queue.Queue()]
 
         # Paxos state
-        self.decisions = {}
-        self.proposals = {}
+        self.decisions = []
+        self.proposals = [] # (s, p)
         self.slot_num = 0
-
-    def generate_propose(self):
-        propose_msg = {"type" : "propose",
-                        "slot_num" : self.slot_num,
-                        "proposal_value" : self.proposal_value
-                        }
-        return propose_msg
-
-    def send_propose(self, leader_id):
-        # create accceptor socket
-        leader_address = tuple(paxos_config["leaders"][leader_id])
-        leader_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        leader_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        leader_sock.connect(leader_address)
-
-        # send message to leader
-        propose_msg = self.generate_propose()
-        leader_sock.send(json.dumps(propose_msg))
-        leader_sock.close()
-
-    def lock(self, x, client_id):   
-        print "trying to lock " + str(x) + "from " + str(client_id)
+    
+    def lock(self, client_id, command_id, x):
+        print "trying to lock " + str(x) + " for client#" + str(client_id)
 
         # error cases
         if (x < 0 or x >= self.num_locks):
             # lock doesn't exist
-            self.reply_to_client(client_id, LOCK_FAILURE)
+            self.reply_to_client(client_id, command_id, LOCK_FAILURE)
             return LOCK_FAILURE
         
         if (self.lock_owners[x] == client_id):
             # repeated lock by the same client
-            self.reply_to_client(client_id, LOCK_SUCCESS)
+            self.reply_to_client(client_id, command_id, LOCK_SUCCESS)
             return LOCK_SUCCESS
 
         # acquire lock
@@ -93,7 +70,7 @@ class LockServer:
             # lock
             self.lock_states[x] = UNAVAILABLE
             self.lock_owners[x] = client_id
-            self.reply_to_client(client_id, LOCK_SUCCESS)
+            self.reply_to_client(client_id, command_id, LOCK_SUCCESS)
             return LOCK_SUCCESS
         else:
             # lock held by someone else
@@ -101,25 +78,24 @@ class LockServer:
             self.lock_wait_queues[x].put(client_id)
             return LOCK_WAIT
 
-    def unlock(self, x, client_id):
-        print "trying to unlock " + str(x) + "from " + str(client_id)
+    def unlock(self, client_id, command_id, x):
+        print "trying to unlock " + str(x) + " for client#" + str(client_id)
 
         # error cases
         if (x < 0 or x >= self.num_locks):
             # lock doesn't exist
-            self.reply_to_client(client_id, UNLOCK_FAILURE)
+            self.reply_to_client(client_id, command_id, UNLOCK_FAILURE)
             return UNLOCK_FAILURE
 
         if (self.lock_owners[x] != client_id):
             # unlock someone else's lock
-            self.reply_to_client(client_id, UNLOCK_FAILURE)
+            self.reply_to_client(client_id, command_id, UNLOCK_FAILURE)
             return UNLOCK_FAILURE
 
         if (self.lock_owners[x] == NO_OWNER):
             # unlock an available lock
-            self.reply_to_client(client_id, UNLOCK_SUCCESS)
+            self.reply_to_client(client_id, command_id, UNLOCK_SUCCESS)
             return UNLOCK_SUCCESS
-
 
         if (self.lock_owners[x] == client_id
             and self.lock_states[x] == UNAVAILABLE):
@@ -128,44 +104,121 @@ class LockServer:
                 # hand over lock
                 waiting_client_id = self.lock_wait_queues[x].get()
                 self.lock_owners[x] = waiting_client_id
-                self.reply_to_client(waiting_client_id, LOCK_SUCCESS)
+                self.reply_to_client(waiting_client_id, command_id, LOCK_SUCCESS)
             else:
                 # no one waiting for the lock
                 self.lock_owners[x] = NO_OWNER
                 self.lock_states[x] = AVAILABLE
 
-            self.reply_to_client(client_id, UNLOCK_SUCCESS)
+            self.reply_to_client(client_id, command_id, UNLOCK_SUCCESS)
             return UNLOCK_SUCCESS
 
-    def generate_response(self, command_id, result):
+
+    def perform(self, proposal_value):
+        # if proposal_value already in decision
+        # increment slot_num
+        for decision in self.decisions:
+            if decision["proposal_value"] == proposal_value \
+                and decision["slot_num"] < self.slot_num:
+                self.slot_num += 1
+                return
+        
+        # if new proposal_value
+        # perform it
+        print "perform slot_num = " + str(self.slot_num) \
+            + " proposal = " + str(proposal_value)
+        self.slot_num += 1
+        client_id = proposal_value["client_id"]
+        command_id = proposal_value["command_id"]
+        op = proposal_value["op"].split(" ")
+        opcode = op[0]
+        lock_num = int(op[1])
+        if opcode == "lock":
+            self.lock(client_id, command_id, lock_num)
+        elif opcode == "unlock":
+            self.unlock(client_id, command_id, lock_num)
+        else:
+            print "error"
+
+    def find_smallest_unused_slot_num(self):
+        all_proposal_slot_nums = set([proposal["slot_num"]
+                                    for proposal in self.proposals])
+        all_decision_slot_nums = set([decision["slot_num"]
+                                    for decision in self.decisions])
+        all_used_slot_num = all_proposal_slot_nums.union(all_decision_slot_nums)
+        min_slot_num = 0
+        while (min_slot_num in all_used_slot_num):
+            min_slot_num += 1
+
+        return min_slot_num
+
+    def propose(self, proposal_value):
+        # only add to self.proposals if not already exist
+        if len(self.proposals) > 0:
+            all_existing_proposal_values = [proposal["proposal_value"]
+                                    for proposal in self.proposals]
+
+            proposal_value_already_exist = [True for pval in all_existing_proposal_values 
+                                                if pval["client_id"] == proposal_value["client_id"]
+                                                and pval["command_id"] == proposal_value["command_id"]
+                                                and pval["op"] == proposal_value["op"]
+                                            ]
+            if any(proposal_value_already_exist):
+                # proposal_value already in self.proposals
+                return
+
+        # find smallest unused slot_num
+        min_slot_num = self.find_smallest_unused_slot_num()
+        new_proposal = {"slot_num" : min_slot_num,
+                        "proposal_value" : proposal_value
+                        }
+        self.proposals += [new_proposal]
+
+        # propose to all leaders
+        leader_ids = paxos_config["leaders"].keys()
+        for leader_id in leader_ids:
+            print "propose to leader #" + leader_id + " " + str(new_proposal)
+            self.send_propose(leader_id, min_slot_num, proposal_value)
+
+    def generate_propose(self, slot_num, proposal_value):
+        propose_msg = {"type" : "propose",
+                        "slot_num" : slot_num,
+                        "proposal_value" : proposal_value
+                        }
+        return propose_msg
+
+    def send_propose(self, leader_id, slot_num, proposal_value):
+        # create accceptor socket
+        leader_address = tuple(paxos_config["leaders"][leader_id])
+        leader_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        leader_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        leader_sock.connect(leader_address)
+
+        # send message to leader
+        propose_msg = self.generate_propose(slot_num, proposal_value)
+        leader_sock.sendall(json.dumps(propose_msg))
+        leader_sock.close()
+
+ 
+    def generate_response(self, command_id, result_code):
         response_msg = {"type" : "response",
                         "result" : {"command_id" : command_id,
-                                      "result_code" : result
+                                      "result_code" : result_code
                                     }}
         return response_msg
 
 
-    def reply_to_client(self, client_id, response_state):
-        client_conn = self.client_conns[client_id]
-        command_id = self.client_commands[client_id]["command_id"]
-        response_msg = self.generate_response(command_id, response_state)
-        client_conn.send(json.dumps(response_msg))
+    def reply_to_client(self, client_id, command_id, result_code):
+        # connect to client
+        client_address = tuple(paxos_config["lock_clients"][client_id])
+        client_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        client_conn.connect(client_address)
+
+        response_msg = self.generate_response(command_id, result_code)
+
+        client_conn.sendall(json.dumps(response_msg))
         client_conn.close()
-
-    def perform(self, command):
-        # TODO
-        self.decisions += [command]
-
-        client_id = command["client_id"]
-        op = command["op"].split(" ")
-        opcode = op[0]
-        lock_num = int(op[1])
-        if opcode == "lock":
-            self.lock(lock_num, client_id)
-        elif opcode == "unlock":
-            self.unlock(lock_num, client_id)
-        else:
-            print "error"
 
 
     def serve_forever(self):
@@ -183,11 +236,33 @@ class LockServer:
             if data: 
                 msg = json.loads(data)
                 if msg["type"] == "request":
-                        command = msg["command"]
-                        client_id = command["client_id"] 
-                        self.client_conns[client_id] = client_conn
-                        self.client_commands[client_id] = command
-                        self.perform(command)
+                    print "request msg recv"
+                    proposal_value = msg["command"]
+                    self.propose(proposal_value)
+
+                elif msg["type"] == "decision":
+                    print "decision msg recv"
+                    new_decision = {"slot_num" : msg["slot_num"],
+                                    "proposal_value" : msg["proposal_value"]
+                                    }
+                    self.decisions += [new_decision]
+                    
+                    # find slot_num that are already decided on
+                    # propose the proposal values that had those slot_num again
+                    decision_proposal_values_for_slot_num = [decision["proposal_value"]
+                                                                for decision in self.decisions
+                                                                if decision["slot_num"] == self.slot_num]
+                    conflicted_proposal_values = [proposal["proposal_value"] 
+                                                    for proposal in self.proposals
+                                                    if (proposal["slot_num"] == self.slot_num)
+                                                    and (proposal not in decision_proposal_values_for_slot_num)]
+                    # propose conflicted proposal values
+                    for proposal_value in conflicted_proposal_values:
+                        self.propose(proposal_value)
+                    # perform the decided proposal values
+                    for proposal_value in decision_proposal_values_for_slot_num:
+                        self.perform(proposal_value)
+                    
                 else:
                     print "wrong message received"
                     client_conn.close()

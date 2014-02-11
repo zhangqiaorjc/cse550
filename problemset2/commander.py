@@ -16,7 +16,7 @@ UNLOCK_SUCCESS = 0
 UNLOCK_FAILURE = 1
 
 backlog = 10
-maxbuf = 1024
+maxbuf = 10240
 
 paxos_config_file = open("paxos_group_config.json", "r")
 paxos_config = json.loads(paxos_config_file.read())
@@ -63,7 +63,7 @@ class Commander:
 
         # send message to acceptor
         p2a_msg = self.generate_p2a()
-        acceptor_sock.send(json.dumps(p2a_msg))
+        acceptor_sock.sendall(json.dumps(p2a_msg))
         acceptor_sock.close()
 
     def send_decision(self, replica_id):
@@ -75,8 +75,9 @@ class Commander:
 
         # send message to acceptor
         decision_msg = self.generate_decision()
-        replica_conn.send(json.dumps(decision_msg))
+        replica_conn.sendall(json.dumps(decision_msg))
         replica_conn.close()
+        print "send decision to replica #" + str(replica_id) + " " + str(decision_msg)
 
     def send_preempted(self, acceptor_ballot_num):
         preempted_msg = self.generate_preempted(acceptor_ballot_num)
@@ -88,7 +89,7 @@ class Commander:
         leader_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         leader_conn.connect(leader_address)
         # send msg
-        leader_conn.send(json.dumps(preempted_msg))
+        leader_conn.sendall(json.dumps(preempted_msg))
         leader_conn.close()
 
     def send_p2a_recv_p2b(self):
@@ -117,15 +118,14 @@ class Commander:
                 if msg["type"] == "p2b":
                     acceptor_id = msg["acceptor_id"]
                     acceptor_ballot_num = msg["ballot_num"]
-                    print "data from acceptor" + str(msg)
+                    print "response from acceptor#" + str(acceptor_id) + " " + str(msg)
                     if acceptor_ballot_num == self.proposal["ballot_num"]:
-                        # acceptor adopts leader_ballot_num
-                        print wait_for_acceptor_ids
+                        # acceptor adopted leader_ballot_num
                         wait_for_acceptor_ids.remove(acceptor_id)
-                        print "remove one waiting"
                         # heard from majority of acceptors
                         if len(wait_for_acceptor_ids) <= len(acceptor_ids) / 2:
                             print "quorum reached"
+                            replica_ids = paxos_config["replicas"].keys()
                             for replica_id in replica_ids:
                                 print "send decision to replica_id = " + replica_id
                                 self.send_decision(replica_id)
@@ -146,17 +146,15 @@ class Commander:
             acceptor_conn.close()
 
     def send_to_leader(self, msg):
-
         print "ready to send to leader adopte message" + str(msg)
 
-        sys.exit(0)
         # connect to leader
         leader_address = tuple(paxos_config["leaders"][self.leader_id])
         leader_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         leader_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         leader_conn.connect(leader_address)
         # send msg
-        leader_conn.send(json.dumps(msg))
+        leader_conn.sendall(json.dumps(msg))
         leader_conn.close()
 
 
