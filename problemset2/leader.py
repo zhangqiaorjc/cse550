@@ -12,7 +12,6 @@ import time
 import scout
 import commander
 
-
 LOCK_SUCCESS = 0
 LOCK_FAILURE = 1
 LOCK_WAIT = 3
@@ -20,7 +19,7 @@ LOCK_WAIT = 3
 UNLOCK_SUCCESS = 0
 UNLOCK_FAILURE = 1
 
-backlog = 10
+backlog = 5
 maxbuf = 10240
 
 paxos_config_file = open("paxos_group_config.json", "r")
@@ -54,6 +53,7 @@ class Leader:
 
         # event loop
         while 1:
+            print "listening for connection"
             # listen for minion p1b response
             minion_conn, minion_address = s.accept()
             data = minion_conn.recv(maxbuf).strip()
@@ -112,7 +112,6 @@ class Leader:
                         my_scout = scout.Scout(self.leader_id, self.leader_id, self.leader_ballot_num)
                         print "Scout # " + self.leader_id + " started at " + str(my_scout.scout_address)
                         my_scout.send_p1a_recv_p1b()
-
                 else:
                     print "wrong message received"
             else:

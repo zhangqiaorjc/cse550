@@ -15,7 +15,7 @@ LOCK_WAIT = 3
 UNLOCK_SUCCESS = 0
 UNLOCK_FAILURE = 1
 
-backlog = 10
+backlog = 5
 maxbuf = 10240
 
 paxos_config_file = open("paxos_group_config.json", "r")
@@ -55,18 +55,21 @@ class Scout:
         return preempted_msg
 
     def send_p1a(self, acceptor_id):
-        # create accceptor socket
-        acceptor_address = tuple(paxos_config["acceptors"][acceptor_id])
-        acceptor_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        acceptor_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        acceptor_sock.connect(acceptor_address)
+        try:
+            # create accceptor socket
+            acceptor_address = tuple(paxos_config["acceptors"][acceptor_id])
+            acceptor_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            acceptor_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            acceptor_sock.connect(acceptor_address)
+            # send message to acceptor
+            p1a_msg = self.generate_p1a()
+            print "SEND p1a to acceptor_id = " + acceptor_id \
+                + " msg = " + str(p1a_msg)
+            acceptor_sock.sendall(json.dumps(p1a_msg))
+            acceptor_sock.close()
+        except socket.error, (value,message): 
+            print "Could not connect to acceptor # " + str(acceptor_id)
 
-        # send message to acceptor
-        p1a_msg = self.generate_p1a()
-        print "SEND p1a to acceptor_id = " + acceptor_id \
-            + " msg = " + str(p1a_msg)
-        acceptor_sock.sendall(json.dumps(p1a_msg))
-        acceptor_sock.close()
 
     def send_p1a_recv_p1b(self):
 
@@ -127,27 +130,34 @@ class Scout:
     def send_adopted(self):
         adopted_msg = self.generate_adopted()
         print "ready to send to leader adopted message " + str(adopted_msg)
-        # connect to leader
-        leader_address = tuple(paxos_config["leaders"][self.leader_id])
-        leader_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        leader_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        leader_conn.connect(leader_address)
-        # send msg
-        leader_conn.sendall(json.dumps(adopted_msg))
-        leader_conn.close()
+
+        try:
+            # connect to leader
+            leader_address = tuple(paxos_config["leaders"][self.leader_id])
+            leader_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            leader_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            leader_conn.connect(leader_address)
+            # send msg
+            leader_conn.sendall(json.dumps(adopted_msg))
+            leader_conn.close()
+        except socket.error, (value,message): 
+            print "Could not connect to leader # " + str(self.leader_id)
 
     def send_preempted(self, acceptor_ballot_num):
         preempted_msg = self.generate_preempted(acceptor_ballot_num)
         print "ready to send to leader preempted_msg message " + str(preempted_msg)
     
-        # connect to leader
-        leader_address = tuple(paxos_config["leaders"][self.leader_id])
-        leader_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        leader_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        leader_conn.connect(leader_address)
-        # send msg
-        leader_conn.sendall(json.dumps(preempted_msg))
-        leader_conn.close()
+        try:
+            # connect to leader
+            leader_address = tuple(paxos_config["leaders"][self.leader_id])
+            leader_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            leader_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            leader_conn.connect(leader_address)
+            # send msg
+            leader_conn.sendall(json.dumps(preempted_msg))
+            leader_conn.close()
+        except socket.error, (value,message): 
+            print "Could not connect to leader # " + str(self.leader_id)
 
 if __name__ == "__main__":
 

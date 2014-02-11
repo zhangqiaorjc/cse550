@@ -20,7 +20,7 @@ UNLOCK_FAILURE = 1
 
 MAX_INSTANCES = 1000
 
-backlog = 10
+backlog = 5
 maxbuf = 10240
 
 paxos_config_file = open("paxos_group_config.json", "r")
@@ -58,20 +58,19 @@ class Acceptor:
         scout_address = tuple(paxos_config["scouts"][leader_id])
         print "reply to scout # " + str(leader_id) + " msg = " + str(msg)
         
-        # create leader connection
-        scout_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        scout_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
+            # create leader connection
+            scout_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            scout_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            
             scout_conn.connect(scout_address)
+            # send message
+            scout_conn.send(json.dumps(msg))
+            scout_conn.close()
         except socket.error, (value,message): 
-            if scout_conn: 
-                scout_conn.close() 
-            print "Could not open socket: " + message 
-            sys.exit(0)   
+            print "Could not connect to scout # " + str(leader_id) 
 
-        # send message
-        scout_conn.send(json.dumps(msg))
-        scout_conn.close()
+
 
     def reply_to_commander(self, leader_id, msg):
         # use commander port
@@ -79,19 +78,15 @@ class Acceptor:
         print "reply to commander # " + str(leader_id) + " msg = " + str(msg)
         
         # create leader connection
-        commander_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        commander_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
+            commander_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            commander_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             commander_conn.connect(commander_address)
+            # send message
+            commander_conn.send(json.dumps(msg))
+            commander_conn.close()
         except socket.error, (value,message): 
-            if commander_conn: 
-                commander_conn.close() 
-            print "Could not open socket: " + message 
-            sys.exit(0)
-            
-        # send message
-        commander_conn.send(json.dumps(msg))
-        commander_conn.close()
+            print "Could not connect to commander # " + str(leader_id)
 
     def serve_forever(self):
 

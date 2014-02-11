@@ -22,7 +22,7 @@ MAX_PAXOS_INSTANCES = 1000
 
 NUM_LOCKS = 20
 
-backlog = 10
+backlog = 5
 maxbuf = 10240
 
 paxos_config_file = open("paxos_group_config.json", "r")
@@ -189,17 +189,19 @@ class LockServer:
         return propose_msg
 
     def send_propose(self, leader_id, slot_num, proposal_value):
-        # create accceptor socket
-        leader_address = tuple(paxos_config["leaders"][leader_id])
-        leader_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        leader_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        leader_sock.connect(leader_address)
+        try:
+            # create accceptor socket
+            leader_address = tuple(paxos_config["leaders"][leader_id])
+            leader_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            leader_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            leader_sock.connect(leader_address)
 
-        # send message to leader
-        propose_msg = self.generate_propose(slot_num, proposal_value)
-        leader_sock.sendall(json.dumps(propose_msg))
-        leader_sock.close()
-
+            # send message to leader
+            propose_msg = self.generate_propose(slot_num, proposal_value)
+            leader_sock.sendall(json.dumps(propose_msg))
+            leader_sock.close()
+        except socket.error, (value,message): 
+            print "Could not connect to leader # " + str(leader_id)
  
     def generate_response(self, command_id, result_code):
         response_msg = {"type" : "response",
@@ -210,16 +212,19 @@ class LockServer:
 
 
     def reply_to_client(self, client_id, command_id, result_code):
-        # connect to client
-        client_address = tuple(paxos_config["lock_clients"][client_id])
-        client_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        client_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        client_conn.connect(client_address)
+        try:
+            # connect to client
+            client_address = tuple(paxos_config["lock_clients"][client_id])
+            client_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            client_conn.connect(client_address)
 
-        response_msg = self.generate_response(command_id, result_code)
+            response_msg = self.generate_response(command_id, result_code)
 
-        client_conn.sendall(json.dumps(response_msg))
-        client_conn.close()
+            client_conn.sendall(json.dumps(response_msg))
+            client_conn.close()
+        except socket.error, (value,message): 
+            print "Could not connect to client # " + str(client_id)
 
 
     def serve_forever(self):

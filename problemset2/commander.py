@@ -15,7 +15,7 @@ LOCK_WAIT = 3
 UNLOCK_SUCCESS = 0
 UNLOCK_FAILURE = 1
 
-backlog = 10
+backlog = 5
 maxbuf = 10240
 
 paxos_config_file = open("paxos_group_config.json", "r")
@@ -54,42 +54,50 @@ class Commander:
 
 
     def send_p2a(self, acceptor_id):
-        # create accceptor socket
-        acceptor_address = tuple(paxos_config["acceptors"][acceptor_id])
-        acceptor_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        acceptor_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        acceptor_sock.connect(acceptor_address)
-
-        # send message to acceptor
-        p2a_msg = self.generate_p2a()
-        acceptor_sock.sendall(json.dumps(p2a_msg))
-        acceptor_sock.close()
+        print "SEND p2a to acceptor # " + acceptor_id
+        try:
+            # create accceptor socket
+            acceptor_address = tuple(paxos_config["acceptors"][acceptor_id])
+            acceptor_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            acceptor_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            acceptor_sock.connect(acceptor_address)
+            # send message to acceptor
+            p2a_msg = self.generate_p2a()
+            acceptor_sock.sendall(json.dumps(p2a_msg))
+            acceptor_sock.close()
+        except socket.error, (value,message): 
+            print "Could not connect to acceptor # " + str(acceptor_id) 
 
     def send_decision(self, replica_id):
-        # create accceptor socket
-        replica_address = tuple(paxos_config["replicas"][replica_id])
-        replica_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        replica_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        replica_conn.connect(replica_address)
-
-        # send message to acceptor
-        decision_msg = self.generate_decision()
-        replica_conn.sendall(json.dumps(decision_msg))
-        replica_conn.close()
-        print " SEND decision to replica # " + str(replica_id) + " " + str(decision_msg)
+        try:
+            # create replica socket
+            replica_address = tuple(paxos_config["replicas"][replica_id])
+            replica_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            replica_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            replica_conn.connect(replica_address)
+            # send message to acceptor
+            decision_msg = self.generate_decision()
+            replica_conn.sendall(json.dumps(decision_msg))
+            replica_conn.close()
+            print " SEND decision to replica # " + str(replica_id) + " " + str(decision_msg)
+        except socket.error, (value,message): 
+            print "Could not connect to replica # " + str(replica_id)
 
     def send_preempted(self, acceptor_ballot_num):
         preempted_msg = self.generate_preempted(acceptor_ballot_num)
         print "ready to send to leader preempted_msg message" + str(preempted_msg)
-    
-        # connect to leader
-        leader_address = tuple(paxos_config["leaders"][self.leader_id])
-        leader_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        leader_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        leader_conn.connect(leader_address)
-        # send msg
-        leader_conn.sendall(json.dumps(preempted_msg))
-        leader_conn.close()
+        
+        try:
+            # connect to leader
+            leader_address = tuple(paxos_config["leaders"][self.leader_id])
+            leader_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            leader_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            leader_conn.connect(leader_address)
+            # send msg
+            leader_conn.sendall(json.dumps(preempted_msg))
+            leader_conn.close()
+        except socket.error, (value,message): 
+            print "Could not connect to leader # " + str(self.leader_id)
 
     def send_p2a_recv_p2b(self):
         # create listening socket
@@ -98,10 +106,9 @@ class Commander:
         s.bind(self.commander_address)
         s.listen(backlog)
 
-        # send p1a to all acceptors
+        # send p2a to all acceptors
         acceptor_ids = paxos_config["acceptors"].keys()
         for acceptor_id in acceptor_ids:
-            print "SEND p2a to acceptor # " + acceptor_id
             self.send_p2a(acceptor_id)
 
         # waiting list of acceptors
@@ -109,6 +116,7 @@ class Commander:
 
         # event loop
         while 1:
+            print "commander # " + self.commander_id + " listening"
             # listen for acceptor p1b response
             acceptor_conn, acceptor_address = s.accept()
             data = acceptor_conn.recv(maxbuf).strip()
@@ -131,12 +139,14 @@ class Commander:
                                 print " SEND decision to replica # " + replica_id
                                 self.send_decision(replica_id)
                             # completes accept phase
+                            print "commander # " + self.commander_id + " exiting after decision"
                             return
                     else:
                         # acceptors already adopted a higher leader_ballot_num
                         # leader needs to be pre-empted
                         preempted_msg = self.generate_preempted(acceptor_ballot_num)
                         self.send_preempted(acceptor_ballot_num)
+                        print "commander # " + self.commander_id + " exiting after preemption"
                         return
                 else:
                     print "wrong message received"
@@ -149,15 +159,17 @@ class Commander:
     def send_to_leader(self, msg):
         print "ready to send to leader adopted message" + str(msg)
 
-        # connect to leader
-        leader_address = tuple(paxos_config["leaders"][self.leader_id])
-        leader_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        leader_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        leader_conn.connect(leader_address)
-        # send msg
-        leader_conn.sendall(json.dumps(msg))
-        leader_conn.close()
-
+        try:
+            # connect to leader
+            leader_address = tuple(paxos_config["leaders"][self.leader_id])
+            leader_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            leader_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            leader_conn.connect(leader_address)
+            # send msg
+            leader_conn.sendall(json.dumps(msg))
+            leader_conn.close()
+        except socket.error, (value,message): 
+            print "Could not connect to leader # " + str(self.leader_id)
 
 if __name__ == "__main__":
 

@@ -20,7 +20,7 @@ UNLOCK_FAILURE = 1
 paxos_config_file = open("paxos_group_config.json", "r")
 paxos_config = json.loads(paxos_config_file.read())
 
-backlog = 10
+backlog = 5
 maxbuf = 10240
 
 class LockClient:
@@ -35,13 +35,16 @@ class LockClient:
         print "client # " + str(self.client_id) \
                 + " send request " + str(request_msg) \
                 + "to replica # " + str(replica_id)
-        replica_address = tuple(paxos_config["replicas"][replica_id])
-        replica_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        replica_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        replica_conn.connect(replica_address)
-        replica_conn.sendall(json.dumps(request_msg))
-        replica_conn.close()
-
+        try:
+            replica_address = tuple(paxos_config["replicas"][replica_id])
+            replica_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            replica_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            replica_conn.connect(replica_address)
+            replica_conn.sendall(json.dumps(request_msg))
+            replica_conn.close()
+        except socket.error, (value,message): 
+            print "Could not connect to replica # " + str(replica_id)
+            
     def generate_request(self, client_id, command_id, op):
         request_msg = {"type" : "request",
                         "command" : {"client_id" : client_id,
@@ -85,9 +88,9 @@ if __name__ == "__main__":
 
     command_lists = []
     command_lists += [("0", "lock 0")]
-    #command_lists += [("1", "lock 1")]
-    #command_lists += [("2", "unlock 0")]
-    #command_lists += [("3", "unlock 1")]
+    command_lists += [("1", "lock 1")]
+    command_lists += [("2", "unlock 0")]
+    command_lists += [("3", "unlock 1")]
 
     for command in command_lists:
         if command[0] == "2":
