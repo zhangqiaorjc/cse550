@@ -32,7 +32,7 @@ class LockClient:
 
     def send_request_to_replica(self, replica_id, request_msg):
         # send request to replica
-        print "client #" + str(self.client_id) \
+        print "client # " + str(self.client_id) \
                 + " send request " + str(request_msg) \
                 + "to replica # " + str(replica_id)
         replica_address = tuple(paxos_config["replicas"][replica_id])
@@ -69,7 +69,7 @@ class LockClient:
         if data:
             msg = json.loads(data)
             if msg["type"] == "response":
-                print "client #" + self.client_id + " recv response from replica " 
+                print "client # " + self.client_id + " recv response from replica " 
                 result = msg["result"]
                 print "command_id = " + str(result["command_id"])
                 print "result_code = " + str(result["result_code"])
@@ -80,16 +80,18 @@ if __name__ == "__main__":
     client_id = sys.argv[1]
     client = LockClient(client_id)
 
-    print "Lock client #" + client_id + " started at " + str(client.client_address)
+    print "Lock client # " + client_id + " started at " + str(client.client_address)
         
 
     command_lists = []
     command_lists += [("0", "lock 0")]
-    command_lists += [("1", "lock 1")]
-    command_lists += [("2", "unlock 0")]
-    command_lists += [("3", "unlock 1")]
+    #command_lists += [("1", "lock 1")]
+    #command_lists += [("2", "unlock 0")]
+    #command_lists += [("3", "unlock 1")]
 
     for command in command_lists:
+        if command[0] == "2":
+            time.sleep(4)
         client.send_request_recv_response(command[0], command[1])
 
     print "client done and exiting"

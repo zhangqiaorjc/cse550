@@ -24,7 +24,6 @@ paxos_config = json.loads(paxos_config_file.read())
 class Commander:
 
     def __init__(self, leader_id, commander_id, proposal):
-        
         # network state
         self.commander_address = tuple(paxos_config["commanders"][commander_id])
         self.leader_id = leader_id
@@ -77,7 +76,7 @@ class Commander:
         decision_msg = self.generate_decision()
         replica_conn.sendall(json.dumps(decision_msg))
         replica_conn.close()
-        print "send decision to replica #" + str(replica_id) + " " + str(decision_msg)
+        print " SEND decision to replica # " + str(replica_id) + " " + str(decision_msg)
 
     def send_preempted(self, acceptor_ballot_num):
         preempted_msg = self.generate_preempted(acceptor_ballot_num)
@@ -93,7 +92,6 @@ class Commander:
         leader_conn.close()
 
     def send_p2a_recv_p2b(self):
-
         # create listening socket
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -103,9 +101,10 @@ class Commander:
         # send p1a to all acceptors
         acceptor_ids = paxos_config["acceptors"].keys()
         for acceptor_id in acceptor_ids:
-            print "send p2a to acceptor_id = " + acceptor_id
+            print "SEND p2a to acceptor # " + acceptor_id
             self.send_p2a(acceptor_id)
 
+        # waiting list of acceptors
         wait_for_acceptor_ids = acceptor_ids
 
         # event loop
@@ -117,23 +116,25 @@ class Commander:
                 msg = json.loads(data)
                 if msg["type"] == "p2b":
                     acceptor_id = msg["acceptor_id"]
-                    acceptor_ballot_num = msg["ballot_num"]
-                    print "response from acceptor#" + str(acceptor_id) + " " + str(msg)
+                    acceptor_ballot_num = tuple(msg["ballot_num"])
+                    print "response from acceptor# " + str(acceptor_id) + " " + str(msg)
+                    # if acceptor adopted leader_ballot_num
+                    # remove acceptor from waiting list
                     if acceptor_ballot_num == self.proposal["ballot_num"]:
-                        # acceptor adopted leader_ballot_num
                         wait_for_acceptor_ids.remove(acceptor_id)
-                        # heard from majority of acceptors
+                        # if heard from quorum of acceptors adopting proposal
+                        # send "decision" to all replicas
                         if len(wait_for_acceptor_ids) <= len(acceptor_ids) / 2:
                             print "quorum reached"
                             replica_ids = paxos_config["replicas"].keys()
                             for replica_id in replica_ids:
-                                print "send decision to replica_id = " + replica_id
+                                print " SEND decision to replica # " + replica_id
                                 self.send_decision(replica_id)
                             # completes accept phase
                             return
                     else:
                         # acceptors already adopted a higher leader_ballot_num
-                        # accept phase fails
+                        # leader needs to be pre-empted
                         preempted_msg = self.generate_preempted(acceptor_ballot_num)
                         self.send_preempted(acceptor_ballot_num)
                         return
@@ -146,7 +147,7 @@ class Commander:
             acceptor_conn.close()
 
     def send_to_leader(self, msg):
-        print "ready to send to leader adopte message" + str(msg)
+        print "ready to send to leader adopted message" + str(msg)
 
         # connect to leader
         leader_address = tuple(paxos_config["leaders"][self.leader_id])
@@ -163,11 +164,11 @@ if __name__ == "__main__":
     commander_id = sys.argv[1]
     leader_id = sys.argv[2]
 
-    proposal = {"ballot_num" : 3, "slot_num" : 1, "proposal_value" : "lock 1"}
+    proposal = {"ballot_num" : (3, leader_id), "slot_num" : 1, "proposal_value" : "lock 1"}
     commander = Commander(leader_id, commander_id, proposal)
 
     try:
-        print "commander #" + commander_id + " started at " + str(commander.commander_address)
+        print "commander # " + commander_id + " started at " + str(commander.commander_address)
         commander.send_p2a_recv_p2b()
 
     except KeyboardInterrupt:

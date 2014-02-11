@@ -51,7 +51,7 @@ class LockServer:
         self.slot_num = 0
     
     def lock(self, client_id, command_id, x):
-        print "trying to lock " + str(x) + " for client#" + str(client_id)
+        print "trying to lock " + str(x) + " for client# " + str(client_id)
 
         # error cases
         if (x < 0 or x >= self.num_locks):
@@ -79,7 +79,7 @@ class LockServer:
             return LOCK_WAIT
 
     def unlock(self, client_id, command_id, x):
-        print "trying to unlock " + str(x) + " for client#" + str(client_id)
+        print "trying to unlock " + str(x) + " for client# " + str(client_id)
 
         # error cases
         if (x < 0 or x >= self.num_locks):
@@ -115,8 +115,9 @@ class LockServer:
 
 
     def perform(self, proposal_value):
-        # if proposal_value already in decision
+        # if decision already performed
         # increment slot_num
+        # not perform again
         for decision in self.decisions:
             if decision["proposal_value"] == proposal_value \
                 and decision["slot_num"] < self.slot_num:
@@ -138,7 +139,7 @@ class LockServer:
         elif opcode == "unlock":
             self.unlock(client_id, command_id, lock_num)
         else:
-            print "error"
+            print "wrong op_code request by client"
 
     def find_smallest_unused_slot_num(self):
         all_proposal_slot_nums = set([proposal["slot_num"]
@@ -177,7 +178,7 @@ class LockServer:
         # propose to all leaders
         leader_ids = paxos_config["leaders"].keys()
         for leader_id in leader_ids:
-            print "propose to leader #" + leader_id + " " + str(new_proposal)
+            print "propose to leader # " + leader_id + " " + str(new_proposal)
             self.send_propose(leader_id, min_slot_num, proposal_value)
 
     def generate_propose(self, slot_num, proposal_value):
@@ -222,7 +223,6 @@ class LockServer:
 
 
     def serve_forever(self):
-
         # create listening socket
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -247,19 +247,22 @@ class LockServer:
                                     }
                     self.decisions += [new_decision]
                     
-                    # find slot_num that are already decided on
-                    # propose the proposal values that had those slot_num again
+                    # find decided proposal_value for self.slot_num
+                    # propose the distinct proposal values that had self.slot_num with a different slot_num
                     decision_proposal_values_for_slot_num = [decision["proposal_value"]
                                                                 for decision in self.decisions
                                                                 if decision["slot_num"] == self.slot_num]
                     conflicted_proposal_values = [proposal["proposal_value"] 
                                                     for proposal in self.proposals
                                                     if (proposal["slot_num"] == self.slot_num)
-                                                    and (proposal not in decision_proposal_values_for_slot_num)]
+                                                    and (proposal["proposal_value"] not in decision_proposal_values_for_slot_num)]
+                    print "conflicted_proposal_values"
+                    print conflicted_proposal_values
                     # propose conflicted proposal values
                     for proposal_value in conflicted_proposal_values:
                         self.propose(proposal_value)
-                    # perform the decided proposal values
+                    # perform the decided proposal values for self.slot_num
+                    # skip performining proposal values that have higher slot_num
                     for proposal_value in decision_proposal_values_for_slot_num:
                         self.perform(proposal_value)
                     
@@ -276,7 +279,7 @@ if __name__ == "__main__":
 
     server = LockServer(lock_server_id, NUM_LOCKS)
     try:
-        print "Lock Server #" + lock_server_id + " started at " + str(server.lock_server_address)
+        print "Lock Server # " + lock_server_id + " started at " + str(server.lock_server_address)
         server.serve_forever()
     except KeyboardInterrupt:
         sys.exit(0)

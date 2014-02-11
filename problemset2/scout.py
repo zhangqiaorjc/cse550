@@ -63,6 +63,8 @@ class Scout:
 
         # send message to acceptor
         p1a_msg = self.generate_p1a()
+        print "SEND p1a to acceptor_id = " + acceptor_id \
+            + " msg = " + str(p1a_msg)
         acceptor_sock.sendall(json.dumps(p1a_msg))
         acceptor_sock.close()
 
@@ -77,7 +79,6 @@ class Scout:
         # send p1a to all acceptors
         acceptor_ids = paxos_config["acceptors"].keys()
         for acceptor_id in acceptor_ids:
-            print "send p1a to acceptor_id = " + acceptor_id
             self.send_p1a(acceptor_id)
 
         wait_for_acceptor_ids = acceptor_ids
@@ -92,14 +93,18 @@ class Scout:
                 msg = json.loads(data)
                 if msg["type"] == "p1b":
                     acceptor_id = msg["acceptor_id"]
-                    acceptor_ballot_num = msg["ballot_num"]
+                    acceptor_ballot_num = tuple(msg["ballot_num"])
                     accepted_proposals = msg["accepted_proposals"]
-                    print "data from acceptor" + str(msg)
+                    print "RECV p1b from acceptor # " + str(acceptor_id) \
+                        + "msg = "+ str(msg)
+                    # if acceptor adopts leader_ballot_num
+                    # remove acceptor from waiting list
+                    # leader collects accepted_proposals from acceptor
                     if acceptor_ballot_num == self.leader_ballot_num:
-                        # acceptor adopts leader_ballot_num
                         self.accepted_proposals.extend(accepted_proposals)
                         wait_for_acceptor_ids.remove(acceptor_id)
-                        # heard from majority of acceptors
+                        # if heard from quorum of acceptors
+                        # tell leader that its ballot num is adopted 
                         if len(wait_for_acceptor_ids) <= len(acceptor_ids) / 2:
                             print "quorum reached"
                             self.send_adopted()
@@ -108,6 +113,7 @@ class Scout:
                     else:
                         # acceptors already adopted a higher leader_ballot_num
                         # prepare phase fails
+                        # tell leader that it is preempted
                         self.send_preempted(acceptor_ballot_num)
                         return
                 else:
@@ -120,7 +126,7 @@ class Scout:
 
     def send_adopted(self):
         adopted_msg = self.generate_adopted()
-        print "ready to send to leader adopted message"# + str(adopted_msg)
+        print "ready to send to leader adopted message " + str(adopted_msg)
         # connect to leader
         leader_address = tuple(paxos_config["leaders"][self.leader_id])
         leader_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -132,7 +138,7 @@ class Scout:
 
     def send_preempted(self, acceptor_ballot_num):
         preempted_msg = self.generate_preempted(acceptor_ballot_num)
-        print "ready to send to leader preempted_msg message" + str(preempted_msg)
+        print "ready to send to leader preempted_msg message " + str(preempted_msg)
     
         # connect to leader
         leader_address = tuple(paxos_config["leaders"][self.leader_id])
@@ -152,7 +158,7 @@ if __name__ == "__main__":
     scout = Scout(leader_id, scout_id, leader_ballot_num)
 
     try:
-        print "Scout #" + scout_id + " started at " + str(scout.scout_address)
+        print "Scout # " + scout_id + " started at " + str(scout.scout_address)
         scout.send_p1a_recv_p1b()
 
     except KeyboardInterrupt:

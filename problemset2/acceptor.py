@@ -32,7 +32,8 @@ class Acceptor:
         self.acceptor_address = tuple(paxos_config["acceptors"][acceptor_id])
         
         # Paxos state
-        self.ballot_num = -1
+        # tuples are compared in order of fields
+        self.ballot_num = (-1, acceptor_id)
         self.acceptor_id = acceptor_id
         self.accepted_proposals = []
 
@@ -55,7 +56,7 @@ class Acceptor:
     def reply_to_scout(self, leader_id, msg):
         # use scout port
         scout_address = tuple(paxos_config["scouts"][leader_id])
-        print "reply to scout #" + str(leader_id) + " msg = " + str(msg)
+        print "reply to scout # " + str(leader_id) + " msg = " + str(msg)
         
         # create leader connection
         scout_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -75,13 +76,19 @@ class Acceptor:
     def reply_to_commander(self, leader_id, msg):
         # use commander port
         commander_address = tuple(paxos_config["commanders"][leader_id])
-        print "reply to commander #" + str(leader_id) + " msg = " + str(msg)
+        print "reply to commander # " + str(leader_id) + " msg = " + str(msg)
         
         # create leader connection
         commander_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         commander_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        commander_conn.connect(commander_address)
-
+        try:
+            commander_conn.connect(commander_address)
+        except socket.error, (value,message): 
+            if commander_conn: 
+                commander_conn.close() 
+            print "Could not open socket: " + message 
+            sys.exit(0)
+            
         # send message
         commander_conn.send(json.dumps(msg))
         commander_conn.close()
@@ -101,11 +108,11 @@ class Acceptor:
             if data: 
                 msg = json.loads(data)
                 if msg["type"] == "p1a":
-                    print "recv p1a"
                     leader_id = msg["leader_id"]
                     # asked to prepare ballot number b
-                    leader_ballot_num = msg["ballot_num"] 
-                    
+                    leader_ballot_num = tuple(msg["ballot_num"]) 
+                    print "RECV p1a from leader # " + leader_id \
+                        + " msg = " + str(msg)
                     if leader_ballot_num > self.ballot_num:
                         # if prepare msg has a larger ballot num
                         # promise to a larger ballot num
@@ -117,14 +124,15 @@ class Acceptor:
                     self.reply_to_scout(leader_id, p1b_msg)
 
                 elif msg["type"] == "p2a":
-                    print "recv p2a"
                     leader_id = msg["leader_id"]
                     proposal = msg["proposal"]
-                    leader_ballot_num = proposal["ballot_num"] 
+                    leader_ballot_num = tuple(proposal["ballot_num"]) 
+                    print "RECV p2a from leader # " + leader_id \
+                        + " msg = " + str(msg)
 
                     if leader_ballot_num >= self.ballot_num:
                         print "accept proposal with ballot_num = "\
-                            + str(leader_ballot_num) 
+                            + str(leader_ballot_num)
                         self.ballot_num = leader_ballot_num
                         self.accepted_proposals += [proposal]
 
@@ -145,7 +153,7 @@ if __name__ == "__main__":
     server = Acceptor(acceptor_id)
  
     try:
-        print "Acceptor #" + acceptor_id + " started at " + str(server.acceptor_address)
+        print "Acceptor # " + acceptor_id + " started at " + str(server.acceptor_address)
         server.serve_forever()
     except KeyboardInterrupt:
         sys.exit(0)
