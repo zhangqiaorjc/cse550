@@ -24,9 +24,11 @@ paxos_config = json.loads(paxos_config_file.read())
 def pprint(msg):
     print json.dumps(msg, sort_keys=True, indent=4, separators=(',', ': '))
 
-class Commander:
+class Commander(threading.Thread):
 
     def __init__(self, leader_id, commander_id, proposal):
+        threading.Thread.__init__(self)
+        
         # network state
         self.commander_address = tuple(paxos_config["commanders"][commander_id])
         self.leader_id = leader_id
@@ -34,6 +36,67 @@ class Commander:
         # Paxos state
         self.commander_id = commander_id
         self.proposal = proposal
+
+    def run(self):
+        self.send_p2a_recv_p2b()
+
+    def send_p2a_recv_p2b(self):
+        # create listening socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind(self.commander_address)
+        s.listen(backlog)
+
+        # send p2a to all acceptors
+        acceptor_ids = paxos_config["acceptors"].keys()
+        for acceptor_id in acceptor_ids:
+            self.send_p2a(acceptor_id)
+
+        # waiting list of acceptors
+        wait_for_acceptor_ids = acceptor_ids
+
+        # event loop
+        while 1:
+            print "commander # " + self.commander_id + " listening"
+            # listen for acceptor p1b response
+            acceptor_conn, acceptor_address = s.accept()
+            data = acceptor_conn.recv(maxbuf).strip()
+            if data:
+                msg = json.loads(data)
+                if msg["type"] == "p2b":
+                    acceptor_id = msg["acceptor_id"]
+                    acceptor_ballot_num = tuple(msg["ballot_num"])
+                    print "response from acceptor# " + str(acceptor_id)
+                    pprint(msg)
+                    # if acceptor adopted leader_ballot_num
+                    # remove acceptor from waiting list
+                    if acceptor_ballot_num == self.proposal["ballot_num"]:
+                        wait_for_acceptor_ids.remove(acceptor_id)
+                        # if heard from quorum of acceptors adopting proposal
+                        # send "decision" to all replicas
+                        if len(wait_for_acceptor_ids) <= len(acceptor_ids) / 2:
+                            print "quorum reached"
+                            replica_ids = paxos_config["replicas"].keys()
+                            for replica_id in replica_ids:
+                                print " SEND decision to replica # " + replica_id
+                                self.send_decision(replica_id)
+                            # completes accept phase
+                            print "commander # " + self.commander_id + " exiting after decision"
+                            return
+                    else:
+                        # acceptors already adopted a higher leader_ballot_num
+                        # leader needs to be pre-empted
+                        preempted_msg = self.generate_preempted(acceptor_ballot_num)
+                        self.send_preempted(acceptor_ballot_num)
+                        print "commander # " + self.commander_id + " exiting after preemption"
+                        return
+                else:
+                    print "wrong message received"
+            else:
+                print "null message received"
+
+            # close connection
+            acceptor_conn.close()
 
     def generate_p2a(self):
         p2a_msg = {"type" : "p2a",
@@ -102,64 +165,6 @@ class Commander:
             leader_conn.close()
         except socket.error, (value,message): 
             print "Could not connect to leader # " + str(self.leader_id)
-
-    def send_p2a_recv_p2b(self):
-        # create listening socket
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind(self.commander_address)
-        s.listen(backlog)
-
-        # send p2a to all acceptors
-        acceptor_ids = paxos_config["acceptors"].keys()
-        for acceptor_id in acceptor_ids:
-            self.send_p2a(acceptor_id)
-
-        # waiting list of acceptors
-        wait_for_acceptor_ids = acceptor_ids
-
-        # event loop
-        while 1:
-            print "commander # " + self.commander_id + " listening"
-            # listen for acceptor p1b response
-            acceptor_conn, acceptor_address = s.accept()
-            data = acceptor_conn.recv(maxbuf).strip()
-            if data:
-                msg = json.loads(data)
-                if msg["type"] == "p2b":
-                    acceptor_id = msg["acceptor_id"]
-                    acceptor_ballot_num = tuple(msg["ballot_num"])
-                    print "response from acceptor# " + str(acceptor_id)
-                    pprint(msg)
-                    # if acceptor adopted leader_ballot_num
-                    # remove acceptor from waiting list
-                    if acceptor_ballot_num == self.proposal["ballot_num"]:
-                        wait_for_acceptor_ids.remove(acceptor_id)
-                        # if heard from quorum of acceptors adopting proposal
-                        # send "decision" to all replicas
-                        if len(wait_for_acceptor_ids) <= len(acceptor_ids) / 2:
-                            print "quorum reached"
-                            replica_ids = paxos_config["replicas"].keys()
-                            for replica_id in replica_ids:
-                                print " SEND decision to replica # " + replica_id
-                                self.send_decision(replica_id)
-                            # completes accept phase
-                            print "commander # " + self.commander_id + " exiting after decision"
-                            return
-                    else:
-                        # acceptors already adopted a higher leader_ballot_num
-                        # leader needs to be pre-empted
-                        preempted_msg = self.generate_preempted(acceptor_ballot_num)
-                        self.send_preempted(acceptor_ballot_num)
-                        print "commander # " + self.commander_id + " exiting after preemption"
-                        return
-                else:
-                    print "wrong message received"
-            else:
-                print "null message received"
-
-            # close connection
-            acceptor_conn.close()
 
     def send_to_leader(self, msg):
         print "ready to send to leader adopted message" + str(msg)

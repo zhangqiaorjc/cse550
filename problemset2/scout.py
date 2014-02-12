@@ -25,9 +25,10 @@ def pprint(msg):
     print json.dumps(msg, sort_keys=True, indent=4, separators=(',', ': '))
 
 
-class Scout:
+class Scout(threading.Thread):
 
     def __init__(self, leader_id, scout_id, leader_ballot_num):
+        threading.Thread.__init__(self)
         
         # network state
         self.scout_address = tuple(paxos_config["scouts"][scout_id])
@@ -38,42 +39,8 @@ class Scout:
         self.leader_ballot_num = leader_ballot_num
         self.accepted_proposals = []
 
-    def generate_p1a(self):
-        p1a_msg = {"type" : "p1a",
-                    "leader_id" : self.scout_id,
-                    "ballot_num" : self.leader_ballot_num
-                  }
-        return p1a_msg
-
-    def generate_adopted(self):
-        adopted_msg = {"type" : "adopted",
-                        "ballot_num" : self.leader_ballot_num,
-                        "accepted_proposals" : self.accepted_proposals
-                      }
-        return adopted_msg
-
-    def generate_preempted(self, ballot_num):
-        preempted_msg = {"type" : "preempted",
-                        "ballot_num" : ballot_num
-                        }
-        return preempted_msg
-
-    def send_p1a(self, acceptor_id):
-        try:
-            # create accceptor socket
-            acceptor_address = tuple(paxos_config["acceptors"][acceptor_id])
-            acceptor_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            acceptor_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            acceptor_sock.connect(acceptor_address)
-            # send message to acceptor
-            p1a_msg = self.generate_p1a()
-            print "SEND p1a to acceptor_id = " + acceptor_id \
-                + " msg = " + str(p1a_msg)
-            acceptor_sock.sendall(json.dumps(p1a_msg))
-            acceptor_sock.close()
-        except socket.error, (value,message): 
-            print "Could not connect to acceptor # " + str(acceptor_id)
-
+    def run(self):
+        self.send_p1a_recv_p1b()
 
     def send_p1a_recv_p1b(self):
 
@@ -130,6 +97,42 @@ class Scout:
 
             # close connection
             acceptor_conn.close()
+
+    def generate_p1a(self):
+        p1a_msg = {"type" : "p1a",
+                    "leader_id" : self.scout_id,
+                    "ballot_num" : self.leader_ballot_num
+                  }
+        return p1a_msg
+
+    def generate_adopted(self):
+        adopted_msg = {"type" : "adopted",
+                        "ballot_num" : self.leader_ballot_num,
+                        "accepted_proposals" : self.accepted_proposals
+                      }
+        return adopted_msg
+
+    def generate_preempted(self, ballot_num):
+        preempted_msg = {"type" : "preempted",
+                        "ballot_num" : ballot_num
+                        }
+        return preempted_msg
+
+    def send_p1a(self, acceptor_id):
+        try:
+            # create accceptor socket
+            acceptor_address = tuple(paxos_config["acceptors"][acceptor_id])
+            acceptor_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            acceptor_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            acceptor_sock.connect(acceptor_address)
+            # send message to acceptor
+            p1a_msg = self.generate_p1a()
+            print "SEND p1a to acceptor_id = " + acceptor_id \
+                + " msg = " + str(p1a_msg)
+            acceptor_sock.sendall(json.dumps(p1a_msg))
+            acceptor_sock.close()
+        except socket.error, (value,message): 
+            print "Could not connect to acceptor # " + str(acceptor_id)
 
     def send_adopted(self):
         adopted_msg = self.generate_adopted()

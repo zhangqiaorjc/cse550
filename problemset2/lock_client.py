@@ -73,7 +73,7 @@ class LockClient:
 
         for command in command_queue:
             if command[0] == "2":
-                time.sleep(5)
+                #time.sleep(5)
             self.send_request_recv_response(command[0], command[1])
 
         # return only if client hears the response

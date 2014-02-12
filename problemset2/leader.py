@@ -53,7 +53,7 @@ class Leader:
         # if scout finds an acceptor who has prepares to higher ballot_num
         my_scout = scout.Scout(self.leader_id, self.leader_id, self.leader_ballot_num)
         print "Scout # " + self.leader_id + " started at " + str(my_scout.scout_address)
-        my_scout.send_p1a_recv_p1b()
+        my_scout.start()
 
         # event loop
         while 1:
@@ -85,7 +85,7 @@ class Leader:
                                     "slot_num" : slot_num,
                                     "proposal_value" : proposal_value}
                         my_commander = commander.Commander(self.leader_id, self.leader_id, proposal)
-                        my_commander.send_p2a_recv_p2b()
+                        my_commander.start()
 
                 elif msg["type"] == "adopted":
                     print "leader recv adopted message"
@@ -106,7 +106,7 @@ class Leader:
                         my_commander = commander.Commander(self.leader_id, self.leader_id, 
                                                 proposal_with_leader_ballot_num)
                         print "leader # " + self.leader_id + "spawning commander for proposal " + str(proposal_with_leader_ballot_num)
-                        my_commander.send_p2a_recv_p2b()
+                        my_commander.start()
 
                 elif msg["type"] == "preempted":
                     if tuple(msg["ballot_num"]) > self.leader_ballot_num:
@@ -118,7 +118,7 @@ class Leader:
                         # spawn scout to secure adoption
                         my_scout = scout.Scout(self.leader_id, self.leader_id, self.leader_ballot_num)
                         print "Scout # " + self.leader_id + " started at " + str(my_scout.scout_address)
-                        my_scout.send_p1a_recv_p1b()
+                        my_scout.start()
                 else:
                     print "wrong message received"
             else:
