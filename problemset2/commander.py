@@ -44,7 +44,11 @@ class Commander(threading.Thread):
         # create listening socket
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # this binds to a port assigned by OS
+        # there may be multiple scouts for the same leader
+        # so cannot assign a fix port for scouts
         s.bind(self.commander_address)
+        self.commander_address = s.getsockname()
         s.listen(backlog)
 
         # send p2a to all acceptors
@@ -101,7 +105,8 @@ class Commander(threading.Thread):
     def generate_p2a(self):
         p2a_msg = {"type" : "p2a",
                     "leader_id" : self.commander_id,
-                    "proposal" : self.proposal
+                    "proposal" : self.proposal,
+                    "commander_address" : self.commander_address
                   }
         return p2a_msg
 

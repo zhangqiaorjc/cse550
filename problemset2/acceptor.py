@@ -57,9 +57,7 @@ class Acceptor:
         return p1b_msg
 
 
-    def reply_to_scout(self, leader_id, msg):
-        # use scout port
-        scout_address = tuple(paxos_config["scouts"][leader_id])
+    def reply_to_scout(self, leader_id, scout_address, msg):
         print "reply to scout # " + str(leader_id)
         pprint(msg)
         
@@ -77,10 +75,9 @@ class Acceptor:
 
 
 
-    def reply_to_commander(self, leader_id, msg):
-        # use commander port
-        commander_address = tuple(paxos_config["commanders"][leader_id])
-        print "reply to commander # " + str(leader_id) + " msg = " + str(msg)
+    def reply_to_commander(self, leader_id, commander_address, msg):
+        print "reply to commander # " + str(leader_id)
+        pprint(msg)
         
         # create leader connection
         try:
@@ -121,7 +118,8 @@ class Acceptor:
                         self.ballot_num = leader_ballot_num
 
                     p1b_msg = self.generate_p1b()
-                    self.reply_to_scout(leader_id, p1b_msg)
+                    scout_address = tuple(msg["scout_address"])
+                    self.reply_to_scout(leader_id, scout_address, p1b_msg)
 
                 elif msg["type"] == "p2a":
                     leader_id = msg["leader_id"]
@@ -137,7 +135,8 @@ class Acceptor:
                         self.accepted_proposals += [proposal]
 
                     p2b_msg = self.generate_p2b()
-                    self.reply_to_commander(leader_id, p2b_msg)
+                    commander_address = tuple(msg["commander_address"])
+                    self.reply_to_commander(leader_id, commander_address, p2b_msg)
                 else:
                     print "wrong message received"
             else:

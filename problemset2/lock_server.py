@@ -77,7 +77,7 @@ class LockServer:
         else:
             # lock held by someone else
             # client blocked
-            self.lock_wait_queues[x].put(client_id)
+            self.lock_wait_queues[x].put((client_id, command_id))
             return LOCK_WAIT
 
     def unlock(self, client_id, command_id, x):
@@ -104,9 +104,10 @@ class LockServer:
             if not self.lock_wait_queues[x].empty():
                 # someone else waiting for the lock
                 # hand over lock
-                waiting_client_id = self.lock_wait_queues[x].get()
+                (waiting_client_id, waiting_command_id) = self.lock_wait_queues[x].get()
+                print "hand over lock from " + str(self.lock_owners[x]) + " to " + str(waiting_client_id)
                 self.lock_owners[x] = waiting_client_id
-                self.reply_to_client(waiting_client_id, command_id, LOCK_SUCCESS)
+                self.reply_to_client(waiting_client_id, waiting_command_id, LOCK_SUCCESS)
             else:
                 # no one waiting for the lock
                 self.lock_owners[x] = NO_OWNER
@@ -124,6 +125,8 @@ class LockServer:
             if decision["proposal_value"] == proposal_value \
                 and decision["slot_num"] < self.slot_num:
                 self.slot_num += 1
+                print "ever here?"
+                print "self.slot_num: = " + str(self.slot_num)
                 return
         
         # if new proposal_value
@@ -175,7 +178,8 @@ class LockServer:
         new_proposal = {"slot_num" : min_slot_num,
                         "proposal_value" : proposal_value
                         }
-        self.proposals += [new_proposal]
+        if new_proposal not in self.proposals:
+            self.proposals += [new_proposal]
 
         # propose to all leaders
         leader_ids = paxos_config["leaders"].keys()
@@ -241,6 +245,15 @@ class LockServer:
 
         # event loop
         while 1:
+            # print "perform decided but yet performed operations"
+            # all_decision_slot_nums = set([decision["slot_num"]
+            #                         for decision in self.decisions])
+            # for slot_num in xrange(self.slot_num, max(all_decision_slot_nums) + 1):
+            #     self.perform(self.decisions)
+            # self.slot_num = 
+
+            print "self.slot_num: = " + str(self.slot_num)
+
             print "listening"
             client_conn, address = s.accept() 
             data = client_conn.recv(maxbuf).strip()
@@ -263,10 +276,6 @@ class LockServer:
                     
                     # find decided proposal_value for self.slot_num
                     # propose the distinct proposal values that had self.slot_num with a different slot_num
-                    print "self.proposals"
-                    print self.proposals
-                    print "self.decisions"
-                    print self.decisions
                     decision_proposal_values_for_slot_num = [decision["proposal_value"]
                                                                 for decision in self.decisions
                                                                 if decision["slot_num"] == self.slot_num]

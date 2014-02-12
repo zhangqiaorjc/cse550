@@ -47,7 +47,11 @@ class Scout(threading.Thread):
         # create listening socket
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # this binds to a port assigned by OS
+        # there may be multiple scouts for the same leader
+        # so cannot assign a fix port for scouts
         s.bind(self.scout_address)
+        self.scout_address = s.getsockname()
         s.listen(backlog)
 
         # send p1a to all acceptors
@@ -101,7 +105,8 @@ class Scout(threading.Thread):
     def generate_p1a(self):
         p1a_msg = {"type" : "p1a",
                     "leader_id" : self.scout_id,
-                    "ballot_num" : self.leader_ballot_num
+                    "ballot_num" : self.leader_ballot_num,
+                    "scout_address" : self.scout_address
                   }
         return p1a_msg
 
