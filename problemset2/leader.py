@@ -25,6 +25,10 @@ maxbuf = 10240
 paxos_config_file = open("paxos_group_config.json", "r")
 paxos_config = json.loads(paxos_config_file.read())
 
+def pprint(msg):
+    print json.dumps(msg, sort_keys=True, indent=4, separators=(',', ': '))
+
+
 class Leader:
     def __init__(self, leader_id):
         # network state
@@ -62,7 +66,8 @@ class Leader:
                 if msg["type"] == "propose":
                     slot_num = msg["slot_num"]
                     proposal_value = msg["proposal_value"]
-                    print "RECV propose msg from replica " + str(msg)
+                    print "RECV propose msg from replica "
+                    pprint(msg)
                     # adds proposal to self.proposals if not seen before
                     if slot_num not in self.proposals:
                         new_proposal = {"slot_num" : slot_num,
@@ -86,6 +91,7 @@ class Leader:
                     print "leader recv adopted message"
                     self.active = True
                     print "leader become active"
+                    pprint(msg)
                     accepted_proposals = msg["accepted_proposals"]
                     # retain proposals of highest ballot number
                     extracted_proposals = self.extracted_proposals_of_highest_ballot_number(accepted_proposals)
@@ -106,6 +112,7 @@ class Leader:
                     if tuple(msg["ballot_num"]) > self.leader_ballot_num:
                         self.active = False
                         print "leader become inactive"
+                        pprint(msg)
                         # increment leader_ballot_num
                         self.leader_ballot_num = (self.leader_ballot_num[0] + 1, self.leader_id)
                         # spawn scout to secure adoption

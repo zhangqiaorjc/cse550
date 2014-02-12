@@ -21,6 +21,10 @@ maxbuf = 10240
 paxos_config_file = open("paxos_group_config.json", "r")
 paxos_config = json.loads(paxos_config_file.read())
 
+def pprint(msg):
+    print json.dumps(msg, sort_keys=True, indent=4, separators=(',', ': '))
+
+
 class Scout:
 
     def __init__(self, leader_id, scout_id, leader_ballot_num):
@@ -98,8 +102,8 @@ class Scout:
                     acceptor_id = msg["acceptor_id"]
                     acceptor_ballot_num = tuple(msg["ballot_num"])
                     accepted_proposals = msg["accepted_proposals"]
-                    print "RECV p1b from acceptor # " + str(acceptor_id) \
-                        + "msg = "+ str(msg)
+                    print "RECV p1b from acceptor # " + str(acceptor_id)
+                    pprint(msg)
                     # if acceptor adopts leader_ballot_num
                     # remove acceptor from waiting list
                     # leader collects accepted_proposals from acceptor

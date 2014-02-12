@@ -26,6 +26,10 @@ maxbuf = 10240
 paxos_config_file = open("paxos_group_config.json", "r")
 paxos_config = json.loads(paxos_config_file.read())
 
+
+def pprint(msg):
+    print json.dumps(msg, sort_keys=True, indent=4, separators=(',', ': '))
+
 class Acceptor:
     def __init__(self, acceptor_id):
         # server states
@@ -56,7 +60,8 @@ class Acceptor:
     def reply_to_scout(self, leader_id, msg):
         # use scout port
         scout_address = tuple(paxos_config["scouts"][leader_id])
-        print "reply to scout # " + str(leader_id) + " msg = " + str(msg)
+        print "reply to scout # " + str(leader_id)
+        pprint(msg)
         
         try:
             # create leader connection
@@ -106,8 +111,8 @@ class Acceptor:
                     leader_id = msg["leader_id"]
                     # asked to prepare ballot number b
                     leader_ballot_num = tuple(msg["ballot_num"]) 
-                    print "RECV p1a from leader # " + leader_id \
-                        + " msg = " + str(msg)
+                    print "RECV p1a from leader # " + leader_id
+                    pprint(msg)
                     if leader_ballot_num > self.ballot_num:
                         # if prepare msg has a larger ballot num
                         # promise to a larger ballot num
@@ -122,8 +127,8 @@ class Acceptor:
                     leader_id = msg["leader_id"]
                     proposal = msg["proposal"]
                     leader_ballot_num = tuple(proposal["ballot_num"]) 
-                    print "RECV p2a from leader # " + leader_id \
-                        + " msg = " + str(msg)
+                    print "RECV p2a from leader # " + leader_id
+                    pprint(msg)
 
                     if leader_ballot_num >= self.ballot_num:
                         print "accept proposal with ballot_num = "\

@@ -21,6 +21,9 @@ maxbuf = 10240
 paxos_config_file = open("paxos_group_config.json", "r")
 paxos_config = json.loads(paxos_config_file.read())
 
+def pprint(msg):
+    print json.dumps(msg, sort_keys=True, indent=4, separators=(',', ': '))
+
 class Commander:
 
     def __init__(self, leader_id, commander_id, proposal):
@@ -79,7 +82,8 @@ class Commander:
             decision_msg = self.generate_decision()
             replica_conn.sendall(json.dumps(decision_msg))
             replica_conn.close()
-            print " SEND decision to replica # " + str(replica_id) + " " + str(decision_msg)
+            print " SEND decision to replica # " + str(replica_id)
+            pprint(decision_msg)
         except socket.error, (value,message): 
             print "Could not connect to replica # " + str(replica_id)
 
@@ -125,7 +129,8 @@ class Commander:
                 if msg["type"] == "p2b":
                     acceptor_id = msg["acceptor_id"]
                     acceptor_ballot_num = tuple(msg["ballot_num"])
-                    print "response from acceptor# " + str(acceptor_id) + " " + str(msg)
+                    print "response from acceptor# " + str(acceptor_id)
+                    pprint(msg)
                     # if acceptor adopted leader_ballot_num
                     # remove acceptor from waiting list
                     if acceptor_ballot_num == self.proposal["ballot_num"]:

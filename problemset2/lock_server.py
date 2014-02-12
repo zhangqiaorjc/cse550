@@ -28,6 +28,8 @@ maxbuf = 10240
 paxos_config_file = open("paxos_group_config.json", "r")
 paxos_config = json.loads(paxos_config_file.read())
 
+def pprint(msg):
+    print json.dumps(msg, sort_keys=True, indent=4, separators=(',', ': '))
 
 class LockServer:
     def __init__(self, lock_server_id, num_locks):
@@ -189,6 +191,7 @@ class LockServer:
         return propose_msg
 
     def send_propose(self, leader_id, slot_num, proposal_value):
+        print "ready to send propose to leader # " + leader_id
         try:
             # create accceptor socket
             leader_address = tuple(paxos_config["leaders"][leader_id])
@@ -203,8 +206,9 @@ class LockServer:
         except socket.error, (value,message): 
             print "Could not connect to leader # " + str(leader_id)
  
-    def generate_response(self, command_id, result_code):
+    def generate_response(self, client_id, command_id, result_code):
         response_msg = {"type" : "response",
+                        "client_id" : client_id,
                         "result" : {"command_id" : command_id,
                                       "result_code" : result_code
                                     }}
@@ -212,6 +216,7 @@ class LockServer:
 
 
     def reply_to_client(self, client_id, command_id, result_code):
+        print "ready to reply to client # " + client_id
         try:
             # connect to client
             client_address = tuple(paxos_config["lock_clients"][client_id])
@@ -219,7 +224,7 @@ class LockServer:
             client_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             client_conn.connect(client_address)
 
-            response_msg = self.generate_response(command_id, result_code)
+            response_msg = self.generate_response(client_id, command_id, result_code)
 
             client_conn.sendall(json.dumps(response_msg))
             client_conn.close()
@@ -236,24 +241,32 @@ class LockServer:
 
         # event loop
         while 1:
+            print "listening"
             client_conn, address = s.accept() 
             data = client_conn.recv(maxbuf).strip()
             if data: 
                 msg = json.loads(data)
                 if msg["type"] == "request":
                     print "request msg recv"
+                    pprint(msg)
                     proposal_value = msg["command"]
                     self.propose(proposal_value)
 
                 elif msg["type"] == "decision":
                     print "decision msg recv"
+                    pprint(msg)
                     new_decision = {"slot_num" : msg["slot_num"],
                                     "proposal_value" : msg["proposal_value"]
                                     }
-                    self.decisions += [new_decision]
+                    if new_decision not in self.decisions:
+                        self.decisions += [new_decision]
                     
                     # find decided proposal_value for self.slot_num
                     # propose the distinct proposal values that had self.slot_num with a different slot_num
+                    print "self.proposals"
+                    print self.proposals
+                    print "self.decisions"
+                    print self.decisions
                     decision_proposal_values_for_slot_num = [decision["proposal_value"]
                                                                 for decision in self.decisions
                                                                 if decision["slot_num"] == self.slot_num]
