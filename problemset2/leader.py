@@ -123,6 +123,18 @@ class Leader:
                         self.active = False
                         print "leader become inactive"
                         pprint(msg)
+
+                        # # inactive leader start monitoring active leader
+                        # active_leader_id = tuple(msg["ballot_num"])[1]
+                        # print "starting ping active leader # " + str(active_leader_id)
+                        # if self.ping_active_leader_timeout(active_leader_id):
+                        #     # increment leader_ballot_num
+                        #     self.leader_ballot_num = (self.leader_ballot_num[0] + 1, self.leader_id)
+                        #     # spawn scout to secure adoption
+                        #     my_scout = scout.Scout(self.leader_id, self.leader_id, self.leader_ballot_num)
+                        #     print "Scout # " + self.leader_id + " started at " + str(my_scout.scout_address)
+                        #     my_scout.start()
+
                         # increment leader_ballot_num
                         self.leader_ballot_num = (self.leader_ballot_num[0] + 1, self.leader_id)
                         # spawn scout to secure adoption
@@ -173,6 +185,19 @@ class Leader:
         self.proposals = list(extracted_proposals)
         self.proposals.extend(additional_proposals_from_leader)
 
+
+    def ping_active_leader_timeout(self, active_leader_id):
+        active_leader_address = tuple(paxos_config["leaders"][active_leader_id])
+        while True:
+            try:
+                leader_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                leader_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                leader_sock.connect(active_leader_address)
+                leader_sock.close()
+                time.sleep(3.0)
+            except socket.error:
+                print "ping active leader timeout"
+                return True
 
 if __name__ == "__main__":
 

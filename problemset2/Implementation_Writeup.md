@@ -1,10 +1,8 @@
 ## Distributed Lock Service Using Multi-Paxos
 
-### Architecture overview
+### Architecture Overview: Different Actors and Their Roles
 
 I implemented the multi-instance Paxos described in detail in the paper "Paxos Made Moderately Complex". The time diagram in Figure 1 (Fig. 5 in the original paper) shows clearly the actors in the system and the different kinds of messages being sent and the sequence they are sent.
-
-#### Different Actors and Their Roles
 
 * client (lock client)
 
@@ -85,10 +83,36 @@ I implemented the multi-instance Paxos described in detail in the paper "Paxos M
 	a p2b reply)
 
 
-### Important Questions
+### Known Issues and Their solutions if any
 
-* Can leaders propose different proposal value for the same slot_num
-	- update_proposals_with_extracted_proposals
+* Since client sends requests to all replicas and those requests can be reordered. The replicas
+can end up assigning different slot numbers for the same request. And those conflicting proposals
+will be sent to the leader. So if the leader is not careful, it can end up deciding up different
+proposal value for the same slot number, which has occurred in my program initially. As a solution,
+the leader on receiving a proposal from a replica, checks the slot number and the proposal value
+of the new proposal against all the proposals it has seen so far, and the leader would discard
+the new proposal if it has seen a proposal with the same slot number or the same proposal value.
+This has in practice solved the problem.
+
+* Decision messags from commanders get lost on their way to the lock servers. This
+causes the lock servers to stuck since the leaders do not re-send decision messages. I implemented
+a collaborative query protocol where lock servers on listen socket timeout, sends queries
+to all other lock servers for any decisions reached on its current slot number. This has
+in practice solved the problem. But in the worst case, all lock servers could have missed
+the decision messages, in which case, the lock servers should query the leaders who are the 
+authority on what decisions have been made so far.
+
+* Inactive leaders ping the active leaders in order to monitor for failure. The pinging is done
+by creating a socket and connect with active leader and then sleeps for 3 seconds after closing
+the connection. However, in practice, those connection requests block the active leader from
+processing other messages, in effect, DoS attacked the active leader. So those code are commented
+out. The liveness condition seems to be better when the leaders contend relative to "pinging".
+
+* Using dictionary to represent messages and then serialize with JSON is very verbose
+and has high performance overhead, but it does make the debugging much easier since
+the messages are in plaintext and can be printed in logs. The alternative is protobuf
+which does binary encoding or compress messages before sending them. However, the alternatives
+make the messages harder to display and debug.
 
 
 ### Implementation Details
@@ -114,3 +138,5 @@ Separate listening socket is created to receive messages in a event loop.
 * none of my actors implement recovery, that is if any actor crashes, it cannot rejoin the
 system; in order to implement recovery, all internal states need to be written to disk, and
 be loaded on starting the actors
+
+* detailed log messages are printed on all relevant operations for the ease of debugging
