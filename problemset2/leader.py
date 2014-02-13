@@ -68,13 +68,23 @@ class Leader:
                     proposal_value = msg["proposal_value"]
                     print "RECV propose msg from replica "
                     pprint(msg)
-                    # adds proposal to self.proposals if not seen before
-                    if slot_num not in self.proposals:
-                        new_proposal = {"slot_num" : slot_num,
-                                        "proposal_value" : proposal_value
-                                        }
-                        self.proposals += [new_proposal]
+                    # if proposal slot num is already assigned
+                    # or if proposal value is already proposed for a different slot_num
+                    # discard proposal
+                    found_duplicate = False
+                    for p in self.proposals:
+                        if slot_num == p["slot_num"] or proposal_value == p["proposal_value"]:
+                            print "proposal discarded since the slot_num has already been assigned to another proposal_value"
+                            found_duplicate = True
+                    if found_duplicate:
+                        continue
 
+                    # it is indeed a new proposal        
+                    print "proposal assigned to a new slot_num " + str(slot_num)
+                    new_proposal = {"slot_num" : slot_num,
+                                    "proposal_value" : proposal_value
+                                    }
+                    self.proposals += [new_proposal]
                     # if leader thinks it's active, goes to p2 phase
                     # spawn a commander to execute p2 phase
                     # commander sends back "pre-empted" if a true leader is active

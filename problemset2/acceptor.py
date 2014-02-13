@@ -132,6 +132,14 @@ class Acceptor:
                         print "accept proposal with ballot_num = "\
                             + str(leader_ballot_num)
                         self.ballot_num = leader_ballot_num
+                        # state reduction technique
+                        # acceptor only maintain the most recently accepted proposal value
+                        # for each slot
+                        slot_num_for_new_proposal = proposal["slot_num"]
+                        # delete proposals with the same slot num
+                        self.accepted_proposals = [p for p in self.accepted_proposals
+                                                    if p["slot_num"] != slot_num_for_new_proposal]
+                        # add only the newest proposal for that slot num
                         self.accepted_proposals += [proposal]
 
                     p2b_msg = self.generate_p2b()

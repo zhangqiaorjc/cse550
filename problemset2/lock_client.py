@@ -17,11 +17,16 @@ LOCK_WAIT = 3
 UNLOCK_SUCCESS = 0
 UNLOCK_FAILURE = 1
 
+SUCCESS = 0
+FAILURE = 1
+
 paxos_config_file = open("paxos_group_config.json", "r")
 paxos_config = json.loads(paxos_config_file.read())
 
 backlog = 5
 maxbuf = 10240
+
+num_connection_attempts = 3
 
 def pprint(msg):
     print json.dumps(msg, sort_keys=True, indent=4, separators=(',', ': '))
@@ -31,22 +36,32 @@ class LockClient:
     def __init__(self, client_id):
         self.client_id = client_id
         self.client_address = tuple(paxos_config["lock_clients"][client_id])
-        print self.client_address
+        self.replica_ids = paxos_config["replicas"].keys()
 
     def send_request_to_replica(self, replica_id, request_msg):
         # send request to replica
         print "client # " + str(self.client_id) \
                 + " send request " + str(request_msg) \
                 + "to replica # " + str(replica_id)
-        try:
-            replica_address = tuple(paxos_config["replicas"][replica_id])
-            replica_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            replica_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            replica_conn.connect(replica_address)
-            replica_conn.sendall(json.dumps(request_msg))
-            replica_conn.close()
-        except socket.error, (value,message): 
-            print "Could not connect to replica # " + str(replica_id)
+
+        attempt = 0
+        while attempt < num_connection_attempts:
+            try:
+                replica_address = tuple(paxos_config["replicas"][replica_id])
+                replica_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                replica_conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                replica_conn.connect(replica_address)
+                replica_conn.sendall(json.dumps(request_msg))
+                replica_conn.close()
+                return SUCCESS
+            except socket.error, (value,message): 
+                print "Could not connect to replica # " + str(replica_id)
+                print "try again"
+                attempt += 1
+        print "Could not connect to replica # " + str(replica_id) \
+            + " after " + str(num_connection_attempts) + " attempts"
+        return FAILURE
+
 
     def generate_request(self, command_id, op):
         request_msg = {"type" : "request",
@@ -61,8 +76,14 @@ class LockClient:
         # generate request
         request_msg = self.generate_request(command_id, op)
         # send request to each server
-        for replica_id in paxos_config["replicas"].keys():
-            self.send_request_to_replica(replica_id, request_msg)
+        available_replica_ids = self.replica_ids
+        for replica_id in available_replica_ids:
+            if self.send_request_to_replica(replica_id, request_msg) == FAILURE:
+                # delete replica_id from replica list
+                self.replica_ids.remove(replica_id)
+                if len(self.replica_ids) == 0:
+                    print "no more replica/proposers are reachable"
+                    sys.exit(1)
 
     def service_commands_queues(self, command_queue):
         # create listening socket for response
