@@ -1,6 +1,5 @@
 import sys
-import socket 
-import Queue
+import socket
 import json
 
 AVAILABLE = 0

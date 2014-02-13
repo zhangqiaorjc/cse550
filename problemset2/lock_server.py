@@ -1,6 +1,6 @@
 import sys
 import socket 
-import Queue
+import collections
 import json
 
 AVAILABLE = 0
@@ -25,6 +25,8 @@ NUM_LOCKS = 20
 backlog = 5
 maxbuf = 10240
 
+recv_decision_timeout = 5.0
+
 paxos_config_file = open("paxos_group_config.json", "r")
 paxos_config = json.loads(paxos_config_file.read())
 
@@ -45,11 +47,12 @@ class LockServer:
         for i in xrange(num_locks):
             self.lock_states += [AVAILABLE]
             self.lock_owners += [NO_OWNER]
-            self.lock_wait_queues += [Queue.Queue()]
+            self.lock_wait_queues += [collections.deque()]
 
         # Paxos state
         self.decisions = []
         self.proposals = [] # (s, p)
+        self.responses = {}
         self.slot_num = 0
     
     def lock(self, client_id, command_id, x):
@@ -77,7 +80,7 @@ class LockServer:
         else:
             # lock held by someone else
             # client blocked
-            self.lock_wait_queues[x].put((client_id, command_id))
+            self.lock_wait_queues[x].append((client_id, command_id))
             return LOCK_WAIT
 
     def unlock(self, client_id, command_id, x):
@@ -101,10 +104,10 @@ class LockServer:
 
         if (self.lock_owners[x] == client_id
             and self.lock_states[x] == UNAVAILABLE):
-            if not self.lock_wait_queues[x].empty():
+            if len(self.lock_wait_queues[x]) > 0:
                 # someone else waiting for the lock
                 # hand over lock
-                (waiting_client_id, waiting_command_id) = self.lock_wait_queues[x].get()
+                (waiting_client_id, waiting_command_id) = self.lock_wait_queues[x].popleft()
                 print "hand over lock from " + str(self.lock_owners[x]) + " to " + str(waiting_client_id)
                 self.lock_owners[x] = waiting_client_id
                 self.reply_to_client(waiting_client_id, waiting_command_id, LOCK_SUCCESS)
@@ -122,7 +125,7 @@ class LockServer:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind(self.replica_address)
         s.listen(backlog)
-        s.settimeout(5.0)
+        s.settimeout(recv_decision_timeout)
 
         # event loop
         while 1:
@@ -138,8 +141,18 @@ class LockServer:
                         print "request msg recv"
                         pprint(msg)
                         proposal_value = msg["command"]
-                        # propose to all leaders
-                        self.propose(proposal_value)
+                        client_id = proposal_value["client_id"]
+                        command_id = proposal_value["command_id"]
+                        # if client retries a request that has already been performed
+                        # reply to client without proposing again
+                        if client_id in self.responses \
+                            and command_id in self.responses[client_id]:
+                                result_code = self.responses[client_id][command_id]
+                                self.reply_to_client(client_id, command_id, result_code)
+                        else:
+                            # replica sees a new request
+                            # propose to all leaders
+                            self.propose(proposal_value)
 
                     elif msg["type"] == "decision":
                         print "decision msg recv"
@@ -265,13 +278,20 @@ class LockServer:
     def generate_response(self, client_id, command_id, result_code):
         response_msg = {"type" : "response",
                         "client_id" : client_id,
-                        "result" : {"command_id" : command_id,
-                                      "result_code" : result_code
-                                    }}
+                        "command_id" : command_id,
+                        "result_code" : result_code
+                        }
         return response_msg
 
 
     def reply_to_client(self, client_id, command_id, result_code):
+        if client_id not in self.responses:
+            print "replica stores the response to client"
+            self.responses[client_id] = {command_id : result_code}
+        elif command_id not in self.responses[client_id]:
+            print "replica stores the response to client"
+            self.responses[client_id][command_id] = result_code
+
         print "ready to reply to client # " + client_id
         try:
             # connect to client
@@ -343,8 +363,6 @@ class LockServer:
             if decision["proposal_value"] == proposal_value \
                 and decision["slot_num"] < self.slot_num:
                 self.slot_num += 1
-                print "ever here?"
-                print "self.slot_num: = " + str(self.slot_num)
                 return
         
         # if new proposal_value

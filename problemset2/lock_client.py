@@ -8,6 +8,8 @@ import subprocess
 import threading
 import os
 
+import collections
+
 import time
 
 LOCK_SUCCESS = 0
@@ -27,6 +29,8 @@ backlog = 5
 maxbuf = 10240
 
 num_connection_attempts = 3
+recv_response_timeout = 5.0
+
 
 def pprint(msg):
     print json.dumps(msg, sort_keys=True, indent=4, separators=(',', ': '))
@@ -90,28 +94,42 @@ class LockClient:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind(self.client_address) 
+        s.settimeout(recv_response_timeout)
         s.listen(backlog)
-
-        for command in command_queue:
+        
+        # return only if client hears the response
+        # for the same command_id of its request
+        while len(command_queue) > 0:
+            # send request
+            command = command_queue.popleft()
             if command[0] == "2":
                 time.sleep(5)
             self.send_request_recv_response(command[0], command[1])
 
-        # return only if client hears the response
-        # for the same command_id of its request
-        while 1:
             # recv response
-            replica_conn, address = s.accept()
-            data = replica_conn.recv(maxbuf).strip()
-            if data:
-                msg = json.loads(data)
-                if msg["type"] == "response":
-                    print "client # " + self.client_id + " recv response from replica "
-                    pprint(msg)
-                    #if msg["result"]["command_id"] == command_id:
-                    #break
-            replica_conn.close()
-        
+            while True:
+                try:
+                    replica_conn, address = s.accept()
+                    replica_conn.settimeout(None)
+                    data = replica_conn.recv(maxbuf).strip()
+                    if data:
+                        msg = json.loads(data)
+                        if msg["type"] == "response":
+                            print "client # " + self.client_id + " recv response from replica "
+                            # the response is not from an earlier request
+                            if msg["command_id"] == command[0]:
+                                print "response from replica is "
+                                pprint(msg)
+                                replica_conn.close()
+                                break
+                            else:
+                                print "response for an earlier request, so discard"
+                    replica_conn.close()
+                except socket.timeout:
+                    # resend request until response comes back
+                    print "recv response from replica times out; resend request"
+                    self.send_request_recv_response(command[0], command[1])
+        # close listening socket once all queue of requests got their responses
         s.close()
 
 
@@ -121,11 +139,11 @@ if __name__ == "__main__":
 
     print "Lock client # " + client_id + " started at " + str(client.client_address)
     
-    command_queue = []
-    command_queue += [("0", "lock 0")]
-    command_queue += [("1", "lock 1")]
-    command_queue += [("2", "unlock 0")]
-    command_queue += [("3", "unlock 1")]
+    command_queue = collections.deque()
+    command_queue.append(("0", "lock 0"))
+    command_queue.append(("1", "lock 1"))
+    command_queue.append(("2", "unlock 0"))
+    command_queue.append(("3", "unlock 1"))
 
     client.service_commands_queues(command_queue)
 
