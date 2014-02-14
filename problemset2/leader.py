@@ -9,6 +9,8 @@ import threading
 import os
 import time
 
+import random
+
 import scout
 import commander
 
@@ -21,6 +23,9 @@ UNLOCK_FAILURE = 1
 
 backlog = 5
 maxbuf = 10240
+
+backoff_lower_bound = 10
+backoff_upper_bound = 15
 
 paxos_config_file = open("paxos_group_config.json", "r")
 paxos_config = json.loads(paxos_config_file.read())
@@ -53,6 +58,7 @@ class Leader:
         # if scout finds an acceptor who has prepares to higher ballot_num
         my_scout = scout.Scout(self.leader_id, self.leader_id, self.leader_ballot_num)
         print "Scout # " + self.leader_id + " started at " + str(my_scout.scout_address)
+        my_scout.daemon = True
         my_scout.start()
 
         # event loop
@@ -95,6 +101,7 @@ class Leader:
                                     "slot_num" : slot_num,
                                     "proposal_value" : proposal_value}
                         my_commander = commander.Commander(self.leader_id, self.leader_id, proposal)
+                        my_commander.daemon = True
                         my_commander.start()
 
                 elif msg["type"] == "adopted":
@@ -116,6 +123,7 @@ class Leader:
                         my_commander = commander.Commander(self.leader_id, self.leader_id, 
                                                 proposal_with_leader_ballot_num)
                         print "leader # " + self.leader_id + "spawning commander for proposal " + str(proposal_with_leader_ballot_num)
+                        my_commander.daemon = True
                         my_commander.start()
 
                 elif msg["type"] == "preempted":
@@ -135,11 +143,15 @@ class Leader:
                         #     print "Scout # " + self.leader_id + " started at " + str(my_scout.scout_address)
                         #     my_scout.start()
 
+                        print "leader backoff for random amount of time"
+                        time.sleep(random.randint(backoff_lower_bound, backoff_upper_bound))
+
                         # increment leader_ballot_num
                         self.leader_ballot_num = (self.leader_ballot_num[0] + 1, self.leader_id)
                         # spawn scout to secure adoption
                         my_scout = scout.Scout(self.leader_id, self.leader_id, self.leader_ballot_num)
                         print "Scout # " + self.leader_id + " started at " + str(my_scout.scout_address)
+                        my_scout.daemon = True
                         my_scout.start()
                 else:
                     print "wrong message received"

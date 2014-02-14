@@ -2,7 +2,9 @@
 
 ### Architecture Overview: Different Actors and Their Roles
 
-I implemented the multi-instance Paxos described in detail in the paper "Paxos Made Moderately Complex". The time diagram in Figure 1 (Fig. 5 in the original paper) shows clearly the actors in the system and the different kinds of messages being sent and the sequence they are sent.
+I implemented the multi-instance Paxos described in the paper "Paxos Made Moderately Complex" with some modifications and optimizations. The time diagram in Figure 1 (Fig. 5 in the original paper) shows clearly the actors in the system and the different kinds of messages being sent and the sequence they are sent.
+
+![Alt text](http://homes.cs.washington.edu/~qiao/misc/paxos_time_diagram.png "Figure 1: time diagram ")
 
 * client (lock client)
 
@@ -84,6 +86,12 @@ I implemented the multi-instance Paxos described in detail in the paper "Paxos M
 
 
 ### Known Issues and Their solutions if any
+
+* Once lock server performs client request, it sends its response to the client. However, the
+response message can get lost and the client would block. The solution is allow client to
+timeout on receiving the responses, and resend its request on timeout. The lock server needs
+to record the last response that it has sent to the client and on receiving any request, first
+check if the request has already been fulfilled.
 
 * Since client sends requests to all replicas and those requests can be reordered. The replicas
 can end up assigning different slot numbers for the same request. And those conflicting proposals

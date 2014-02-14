@@ -18,6 +18,8 @@ UNLOCK_FAILURE = 1
 backlog = 5
 maxbuf = 10240
 
+recv_decision_timeout = 5.0
+
 paxos_config_file = open("paxos_group_config.json", "r")
 paxos_config = json.loads(paxos_config_file.read())
 
@@ -50,6 +52,7 @@ class Commander(threading.Thread):
         s.bind(self.commander_address)
         self.commander_address = s.getsockname()
         s.listen(backlog)
+        s.settimeout(recv_decision_timeout)
 
         # send p2a to all acceptors
         acceptor_ids = paxos_config["acceptors"].keys()
@@ -62,45 +65,57 @@ class Commander(threading.Thread):
         # event loop
         while 1:
             print "commander # " + self.commander_id + " listening"
-            # listen for acceptor p1b response
-            acceptor_conn, acceptor_address = s.accept()
-            data = acceptor_conn.recv(maxbuf).strip()
-            if data:
-                msg = json.loads(data)
-                if msg["type"] == "p2b":
-                    acceptor_id = msg["acceptor_id"]
-                    acceptor_ballot_num = tuple(msg["ballot_num"])
-                    print "response from acceptor# " + str(acceptor_id)
-                    pprint(msg)
-                    # if acceptor adopted leader_ballot_num
-                    # remove acceptor from waiting list
-                    if acceptor_ballot_num == self.proposal["ballot_num"]:
-                        wait_for_acceptor_ids.remove(acceptor_id)
-                        # if heard from quorum of acceptors adopting proposal
-                        # send "decision" to all replicas
-                        if len(wait_for_acceptor_ids) <= len(acceptor_ids) / 2:
-                            print "quorum reached"
-                            replica_ids = paxos_config["replicas"].keys()
-                            for replica_id in replica_ids:
-                                print " SEND decision to replica # " + replica_id
-                                self.send_decision(replica_id)
-                            # completes accept phase
-                            print "commander # " + self.commander_id + " exiting after decision"
+            
+            try:
+                # listen for acceptor p1b response
+                acceptor_conn, acceptor_address = s.accept()
+                acceptor_conn.settimeout(None)
+                data = acceptor_conn.recv(maxbuf).strip()
+                if data:
+                    msg = json.loads(data)
+                    if msg["type"] == "p2b":
+                        acceptor_id = msg["acceptor_id"]
+                        acceptor_ballot_num = tuple(msg["ballot_num"])
+                        print "response from acceptor# " + str(acceptor_id)
+                        pprint(msg)
+                        # if acceptor adopted leader_ballot_num
+                        # remove acceptor from waiting list
+                        if acceptor_ballot_num == self.proposal["ballot_num"]:
+                            if acceptor_id in wait_for_acceptor_ids:
+                                wait_for_acceptor_ids.remove(acceptor_id)
+                            # if heard from quorum of acceptors adopting proposal
+                            # send "decision" to all replicas
+                            if len(wait_for_acceptor_ids) <= len(acceptor_ids) / 2:
+                                print "quorum reached"
+                                replica_ids = paxos_config["replicas"].keys()
+                                for replica_id in replica_ids:
+                                    print " SEND decision to replica # " + replica_id
+                                    self.send_decision(replica_id)
+                                # completes accept phase
+                                print "commander # " + self.commander_id + " exiting after decision"
+                                s.close()
+                                return
+                        else:
+                            # acceptors already adopted a higher leader_ballot_num
+                            # leader needs to be pre-empted
+                            preempted_msg = self.generate_preempted(acceptor_ballot_num)
+                            self.send_preempted(acceptor_ballot_num)
+                            print "commander # " + self.commander_id + " exiting after preemption"
+                            s.close()
                             return
                     else:
-                        # acceptors already adopted a higher leader_ballot_num
-                        # leader needs to be pre-empted
-                        preempted_msg = self.generate_preempted(acceptor_ballot_num)
-                        self.send_preempted(acceptor_ballot_num)
-                        print "commander # " + self.commander_id + " exiting after preemption"
-                        return
+                        print "wrong message received"
                 else:
-                    print "wrong message received"
-            else:
-                print "null message received"
+                    print "null message received"
 
-            # close connection
-            acceptor_conn.close()
+                # close connection
+                acceptor_conn.close()
+
+            except socket.timeout:
+                # send p2a to all acceptors
+                acceptor_ids = paxos_config["acceptors"].keys()
+                for acceptor_id in acceptor_ids:
+                    self.send_p2a(acceptor_id)
 
     def generate_p2a(self):
         p2a_msg = {"type" : "p2a",
@@ -111,11 +126,11 @@ class Commander(threading.Thread):
         return p2a_msg
 
     def generate_decision(self):
-        adopted_msg = {"type" : "decision",
+        decision_msg = {"type" : "decision",
                         "slot_num" : self.proposal["slot_num"],
                         "proposal_value" : self.proposal["proposal_value"]
                       }
-        return adopted_msg
+        return decision_msg
 
     def generate_preempted(self, ballot_num):
         preempted_msg = {"type" : "preempted",

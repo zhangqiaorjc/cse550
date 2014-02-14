@@ -182,6 +182,8 @@ class LockServer:
                         for proposal_value in decision_proposal_values_for_slot_num:
                             self.perform(proposal_value)
 
+                    # replica send queries to each other
+                    # if timeout on receiving decisions
                     elif msg["type"] == "query":
                         print "query msg recv"
                         pprint(msg)

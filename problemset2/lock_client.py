@@ -44,9 +44,9 @@ class LockClient:
 
     def send_request_to_replica(self, replica_id, request_msg):
         # send request to replica
-        print "client # " + str(self.client_id) \
-                + " send request " + str(request_msg) \
-                + "to replica # " + str(replica_id)
+        #print "client # " + str(self.client_id) \
+        #        + " send request " + str(request_msg) \
+        #        + "to replica # " + str(replica_id)
 
         attempt = 0
         while attempt < num_connection_attempts:
@@ -102,8 +102,11 @@ class LockClient:
         while len(command_queue) > 0:
             # send request
             command = command_queue.popleft()
-            if command[0] == "2":
-                time.sleep(5)
+            # delay sending request
+            if command[0] == "delay":
+                print "delay for " + command[1] + " sec before sending next request"
+                time.sleep(int(command[1]))
+                continue
             self.send_request_recv_response(command[0], command[1])
 
             # recv response
@@ -142,6 +145,7 @@ if __name__ == "__main__":
     command_queue = collections.deque()
     command_queue.append(("0", "lock 0"))
     command_queue.append(("1", "lock 1"))
+    command_queue.append(("delay", "10"))
     command_queue.append(("2", "unlock 0"))
     command_queue.append(("3", "unlock 1"))
 
