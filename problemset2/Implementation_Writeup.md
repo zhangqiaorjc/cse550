@@ -1,12 +1,12 @@
-## Distributed Lock Service Using Multi-Paxos
+## __Distributed Lock Service Using Multi-Paxos__
 
-### Architecture Overview: Different Actors and Their Roles
+### __Architecture Overview: Different Actors and Their Roles__
 
 I implemented the multi-instance Paxos described in the paper "Paxos Made Moderately Complex" with some modifications and optimizations. The time diagram in Figure 1 (Fig. 5 in the original paper) shows clearly the actors in the system and the different kinds of messages being sent and the sequence they are sent.
 
 ![Alt text](http://homes.cs.washington.edu/~qiao/misc/paxos_time_diagram.png "Figure 1: time diagram ")
 
-* client (lock client)
+* __client__ (lock client)
 
 	- client issues lock/unlock request to the replicas (lock servers) in the form of
 	(client_id, command_id, op) where client_id uniquely identifies the client, and
@@ -18,7 +18,7 @@ I implemented the multi-instance Paxos described in the paper "Paxos Made Modera
 	where command_id identifies the order of the request, result_code (o or 1) to indicate
 	the success or failure of the request at the lock server.
 
-* replica (lock server)
+* __replica__ (lock server)
 	
 	- replica serves two roles: 
 
@@ -39,7 +39,7 @@ I implemented the multi-instance Paxos described in the paper "Paxos Made Modera
 	in order to maintain the invariant that all replicas execute the client requests in the same order
 	and therefore always maintain consistent state with each other)
 	
-* leader(s)
+* __leader(s)__
 
 	- the leader initiates phase 1 and phase 2 of the Paxos algorithm for each slot number.
 	There can be multiple leaders in the system. They each have a boolean self.active that identifies
@@ -53,7 +53,7 @@ I implemented the multi-instance Paxos described in the paper "Paxos Made Modera
 
 	- each leader spawns a scout (multithreaded in my implementation) to conduct phase 1 to become
 	the active leader:
-		- scout
+		- __scout__
 			- sends a p1a message to all acceptors and wait for a quorum of p1b replies from
 			acceptors. Once the scout gets a quorum of p1b replies with the same ballot number as the leader
 			that spawns it, the scout sends an "adopted" message to the leader, informing the leader that
@@ -69,14 +69,14 @@ I implemented the multi-instance Paxos described in the paper "Paxos Made Modera
 		- if the leader receives an "adopted" message, it becomes the active leader and is able to go on to phase 2
 
 	- when the leader receives a "propose" message from a replica, it adds the proposal (slot_num, proposal_value) to a list of proposals it has seen. If the leader is active, it will spawn a commander to complete the phase 2 of Paxos
-		- commander
+		- __commander__
 			- sends p2a to all acceptors and wait for a quorum of p2b replies from
 			acceptors. Once the commander gets a quorum of p2b replies with the same ballot number as the leader
 			that spawns it, the commander sends an "decision" message to all the replicas, informing the replicas that (slot_num, proposal_value) has been decided by Paxos. If the commander, however, receives a p2b reply with a higher ballot number than that of the leader that spawns it, it knows 
 			that some other leader has in the meantime become active independently and prepared the acceptors.
 			The commander needs to pre-empt the leader as a consequence.
 
-* acceptors
+* __acceptors__
 	
 	- the acceptor sits in an listening loop to respond to p1a from scouts and p2a from commanders
 	- the acceptor remembers the highest ballot number that it has prepared to, and also the list of
@@ -85,7 +85,7 @@ I implemented the multi-instance Paxos described in the paper "Paxos Made Modera
 	a p2b reply)
 
 
-### Known Issues and Their solutions if any
+### __Known Issues and Their solutions if any__
 
 * Once lock server performs client request, it sends its response to the client. However, the
 response message can get lost and the client would block. The solution is allow client to
@@ -115,6 +115,13 @@ by creating a socket and connect with active leader and then sleeps for 3 second
 the connection. However, in practice, those connection requests block the active leader from
 processing other messages, in effect, DoS attacked the active leader. So those code are commented
 out. The liveness condition seems to be better when the leaders contend relative to "pinging".
+Another solution I tried is random backoff when a leader gets preempted. This has worked somewhat
+in practice. The final solution I decided on is for the active leader to send out periodic 
+keepalive message when it's idle to all the other leaders. An inactive leader keeps track of when the 
+last time it heard from the active leader and if that exceeds a threshold, the inactive leader
+sends out scout to elect itself as the leader. This solution has the advantage that the active leader
+gets to decide when to send out keepalive, so it can still spend most of its time processing normal
+messages
 
 * Using dictionary to represent messages and then serialize with JSON is very verbose
 and has high performance overhead, but it does make the debugging much easier since
@@ -123,7 +130,7 @@ which does binary encoding or compress messages before sending them. However, th
 make the messages harder to display and debug.
 
 
-### Implementation Details
+### __Implementation Details__
 
 * The implementation is in Python for brevity and readability.
 
