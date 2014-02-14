@@ -85,7 +85,34 @@ I implemented the multi-instance Paxos described in the paper "Paxos Made Modera
 	a p2b reply)
 
 
-### __Known Issues and Their solutions if any__
+### __Implementation Details__
+
+* The implementation is in Python for brevity and readability.
+
+* Assumptions about acquiring and releasing locks.
+	- When a lock is released, it is hand over to the next waiting client.
+	- A lock can be acquired by the client repeatedly without failure, and a single unlock
+call releases the lock. 
+	- An available lock can be unlocked by any client without failure.
+	- A client cannot unlock someone else's lock.
+
+* Actor network addresses and port numbers are specified in a central configuration file
+"paxos_group_config.json" that is loaded at each program for easy modification and lookup
+
+* Messages are Python dictionaries, and they are serialized using JSON
+for network communication.
+
+* TCP connections are open and immediately closed after sending a message. 
+Separate listening socket is created to receive messages in a event loop.
+
+* none of my actors implement recovery, that is if any actor crashes, it cannot rejoin the
+system; in order to implement recovery, all internal states need to be written to disk, and
+be loaded on starting the actors
+
+* detailed log messages are printed on all relevant operations for the ease of debugging
+
+
+### __Important Design Issues and the Solutions__
 
 * Once lock server performs client request, it sends its response to the client. However, the
 response message can get lost and the client would block. The solution is allow client to
@@ -130,28 +157,81 @@ which does binary encoding or compress messages before sending them. However, th
 make the messages harder to display and debug.
 
 
-### __Implementation Details__
 
-* The implementation is in Python for brevity and readability.
+### __How to use my code?__
 
-* Assumptions about acquiring and releasing locks.
-	- When a lock is released, it is hand over to the next waiting client.
-	- A lock can be acquired by the client repeatedly without failure, and a single unlock
-call releases the lock. 
-	- An available lock can be unlocked by any client without failure.
-	- A client cannot unlock someone else's lock.
+* paxos_group_config.json contains the configuration for the Paxos group, e.g.
 
-* Actor network addresses and port numbers are specified in a central configuration file
-"paxos_group_config.json" that is loaded at each program for easy modification and lookup
+		{
+			"replicas": 
+				{
+					"1": ["localhost", 1111],
+					"2": ["localhost", 1113],
+					"3": ["localhost", 1114]
+				},
+			"lock_clients": 
+				{
+					"1": ["localhost", 2001],
+					"2": ["localhost", 2002],
+					"3": ["localhost", 2003]
+				},
+			"acceptors": 
+				{
+					"1": ["localhost", 3001],
+					"2": ["localhost", 3002],
+					"3": ["localhost", 3003]
+				},	
+			"leaders": 
+				{
+					"1": ["localhost", 4001],
+					"2": ["localhost", 4002],
+					"3": ["localhost", 4003]
+				},
+			"scouts": 
+				{
+					"1": ["localhost", 0],
+					"2": ["localhost", 0],
+					"3": ["localhost", 0]
+				},
+			"commanders": 
+				{
+					"1": ["localhost", 0],
+					"2": ["localhost", 0],
+					"3": ["localhost", 0]
+				}
+		}
 
-* Messages are Python dictionaries, and they are serialized using JSON
-for network communication.
 
-* TCP connections are open and immediately closed after sending a message. 
-Separate listening socket is created to receive messages in a event loop.
+* The actors should be started up in the following order: acceptors, leaders, replicas/lock_servers and lock_clients, e.g.
 
-* none of my actors implement recovery, that is if any actor crashes, it cannot rejoin the
-system; in order to implement recovery, all internal states need to be written to disk, and
-be loaded on starting the actors
+		> python acceptor.py 1
+		or
+		> python acceptor.py 1 > acceptor1.log
 
-* detailed log messages are printed on all relevant operations for the ease of debugging
+in the format
+	> python actor.py actor_id
+
+
+* As an example, suppose we have 3 of each actors. The lock client has the following request
+	- command_id = 0, lock 0
+	- command_id = 1, lock 1
+	- sleep for 5 seconds
+	- command_id = 2, unlock 0
+	- command_id = 3, unlock 1
+
+This example is designed to show that the client requests will be executed in the same order on all replicas
+and also the sleep(5) allows us to see that client gets blocked if the lock it requested has been released by
+some other client.
+
+* The log messages printed on screen when running lock_clients show the responses from the replica, and it shows blocking behavior when say client 2 wants to "lock 0" before client 1 has "unlock 0".
+
+* To see that different replicas perform the client request in the same order, use grep
+
+		> cat lock_server1.log | grep "perform"
+
+### __Remaining Concerns__
+
+* The performance is not yet optimal due to leader contention. I may need to adjust timeout for keepalive.
+
+* There could be a bug in the leader code, since leader throws out incoming proposal with either a slot number
+or a proposal value that it has seen before. While the latter is fine, there could be a situation where client requests only reached a partial list of replicas(proposers), so if only one replica saw a particular client request and unfortunately assigned a slot number that conflicts with some number that the leader has seen before, then the proposal value would be discarded by leader. I need to have the proposers timeout on sending proposals and not hearing back decisions to re-assign a slot number and retry the proposal. Will do this when I have more time.

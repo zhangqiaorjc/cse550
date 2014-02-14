@@ -145,7 +145,7 @@ if __name__ == "__main__":
     command_queue = collections.deque()
     command_queue.append(("0", "lock 0"))
     command_queue.append(("1", "lock 1"))
-    command_queue.append(("delay", "10"))
+    command_queue.append(("delay", "5"))
     command_queue.append(("2", "unlock 0"))
     command_queue.append(("3", "unlock 1"))
 
