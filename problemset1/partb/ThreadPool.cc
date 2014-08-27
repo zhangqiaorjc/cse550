@@ -1,3 +1,10 @@
+/* [TODO]
+ * 1. After calling destroy_pool(), make sure that no more new tasks can be added.
+ * 2. Use special marker e.g. NULL tasks for clean shutdown. Worker gets out of
+ *    while loop once it dequeues a special marker.
+ * 3. Consider passing in std::function as tasks since std::function provides closure.
+ */
+
 #include "ThreadPool.h"
 
 #include <iostream>
